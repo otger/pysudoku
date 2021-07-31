@@ -110,13 +110,16 @@ class OptionsMatrix(SudokuMatrixMultiValue):
         return modified
 
     def is_broken(self):
+        """
+        Check if a single option is repeated inside the block. Should be checked also on the row and col
+        """
         for bi in range(3):
             for bj in range(3):
                 b = self.get_block(bi, bj)
                 flat = b.v.flatten()
                 for s in self.symbols:
                     arr = [s in x and len(x) == 1 for x in flat]
-                    if np.count_nonzero(np.array(arr)) == 1:
+                    if np.count_nonzero(np.array(arr)) > 1:
                         ix = arr.index(True)
                         r = bi * 3 + ix // 3
                         c = bj * 3 + ix % 3
@@ -330,24 +333,31 @@ class Sudoku:
         return iterations
 
     def _clean_couples(self, bi, bj, ij_0, ij_1, values):
-        for i in range(3):
-            for j in range(3):
-                if (i, j) not in [ij_0, ij_1]:
-                    for v in values:
-                        self._options.v[bi * 3 + i, bj * 3 + j] = self._options.v[bi * 3 + i, bj * 3 + j].replace(v, '')
+        values_in_row_or_col = False
         if ij_0[0] == ij_1[0]:
+            values_in_row_or_col = True
             row = bi * 3 + ij_0[0]
             cols = (bj * 3 + ij_0[1], bj * 3 + ij_1[1])
             for j in range(9):
                 if j not in cols:
-                    self._options.v[row, j] = self._options.v[row, j].replace(v, '')
+                    for v in values:
+                        self._options.v[row, j] = self._options.v[row, j].replace(v, '')
 
-        if ij_0[1] == ij_1[1]:
+        elif ij_0[1] == ij_1[1]:
+            values_in_row_or_col = True
             rows = (bi * 3 + ij_0[0], bi * 3 + ij_1[0])
             col = bj * 3 + ij_0[1]
             for i in range(9):
                 if i not in rows:
-                    self._options.v[i, col] = self._options.v[i, col].replace(v, '')
+                    for v in values:
+                        self._options.v[i, col] = self._options.v[i, col].replace(v, '')
+        if values_in_row_or_col:
+            for i in range(3):
+                for j in range(3):
+                    if (i, j) not in [ij_0, ij_1]:
+                        for v in values:
+                            self._options.v[bi * 3 + i, bj * 3 + j] = self._options.v[bi * 3 + i, bj * 3 + j].replace(v, '')
+        return values_in_row_or_col
 
     def clean_couples(self, iteration=0, skip=[]):
         """
@@ -366,9 +376,11 @@ class Sudoku:
                         if len(el) == 2:
                             if (bi, bj, i, j, el) not in skip:
                                 if el in bin:
-                                    self._clean_couples(bi, bj, bin[el], (i, j), el)
                                     skip.append((bi, bj, i, j, el))
-                                    return self.clean_couples(iteration + 1, skip)
+                                    if self._clean_couples(bi, bj, bin[el], (i, j), el):
+                                        self.add_step(f"Found same 2 values [{el}] in a row or a col on a "
+                                                      f"block [{3*bi + bj}. Cleaned it. Iteration: {iteration}")
+                                        return self.clean_couples(iteration + 1, skip)
 
                                 else:
                                     bin[el] = (i, j)
@@ -393,7 +405,7 @@ class Sudoku:
             loop += self.clean_options_in_single_col_of_block()
             loop += self.clean_options_in_single_row_of_block()
 
-            # loop += self._options.clean_couples()
+            loop += self.clean_couples()
 
             self.costs.append(loop)
             if self.solved():
@@ -502,18 +514,22 @@ class Sudoku:
 
 
 if __name__ == '__main__':
-    # s = Sudoku('53--7----6--195----98----6-8---6---34--8-3--17---2---6-6----28----419--5----8--79')
+    # init_str = '53--7----6--195----98----6-8---6---34--8-3--17---2---6-6----28----419--5----8--79'
     # Beginner
-    # s = Sudoku('8593674-113-5-869--62149385-8593176-----74-582-185-934---49-813-13--254-54-6-3279')
+    # init_str = '8593674-113-5-869--62149385-8593176-----74-582-185-934---49-813-13--254-54-6-3279'
     # Easy
-    # s = Sudoku('56---438---218-56---85-2-9-983--1-------38-16-17-2-8398-4-5-97-756819-4-12--47---')
+    # init_str = '56---438---218-56---85-2-9-983--1-------38-16-17-2-8398-4-5-97-756819-4-12--47---'
     # Medium
-    # s = Sudoku('9-62---5---1-----9--------61-94-68---32--5-6-76413-59-6---73-4--9-----7-4--6-2915')
-    # Hard (not solvable ?)
-    # s = Sudoku('-8--9-65--7-4------51------6----3---1-9--8--2-4---7-9-----1--6---2---8-5---3-21--')
-    # Hard solvable
-    s = Sudoku('4-8---9--9---4-7----6----48-8---1-7---5--------18-24-6-3-----5-81-3--------98---7')
-
+    # init_str = '9-62---5---1-----9--------61-94-68---32--5-6-76413-59-6---73-4--9-----7-4--6-2915'
+    # Hard
+    # init_str = '-8--9-65--7-4------51------6----3---1-9--8--2-4---7-9-----1--6---2---8-5---3-21--'
+    # Hard
+    # init_str = '4-8---9--9---4-7----6----48-8---1-7---5--------18-24-6-3-----5-81-3--------98---7'
+    # Extreme (easy)
+    # init_str = '----8---9-6-9--18---4-3----1--5-4--6---3-754----------5-7----1-84---3-----9---7-2'
+    # Extreme
+    init_str = '--5-----8---18---7-----412---9-----2-4-3--5--5-6--7-8-6---9---1-2---5----9-6--7--'
+    s = Sudoku(init_str)
     print(s._original)
     print(s._options)
     res = s.solve_clean()
@@ -526,3 +542,7 @@ if __name__ == '__main__':
     # a = s._options.as_str()
     # b = OptionsMatrix.from_str(a)
     # print(b)
+    from pygame_sudoku import SudokuVisualize
+    sv =SudokuVisualize(steps=s.steps)
+    sv.run()
+    sv.quit()

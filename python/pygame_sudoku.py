@@ -80,12 +80,30 @@ class SudokuVisualize:
         return self.steps[self._curr_step]
 
     def next_step(self):
-        if len(self.steps) > self._curr_step + 1:
+        if self._curr_step + 1 < len(self.steps):
             self._curr_step += 1
 
     def prev_step(self):
         if self._curr_step > 0:
             self._curr_step -= 1
+
+    def go_to_last_step(self):
+        self._curr_step = len(self.steps) - 1
+
+    def go_to_first_step(self):
+        self._curr_step = 0
+
+    def ff_10_steps(self):
+        if self._curr_step + 10 < len(self.steps):
+            self._curr_step += 10
+        else:
+            self.go_to_last_step()
+
+    def rew_10_steps(self):
+        if self._curr_step - 10 > 0:
+            self._curr_step -= 10
+        else:
+            self.go_to_first_step()
 
     def draw(self):
         self.GUI.fill(BACKGROUND_COLOR)
@@ -185,7 +203,7 @@ class SudokuVisualize:
                 pygame.draw.rect(self.GUI, EXPLANATION_AREA_BACKGROUND_COLOR,
                                  pygame.Rect(ERROR_AREA_OFFSET,
                                              (ERROR_AREA_WIDTH, ERROR_AREA_HEIGHT)))
-                if self.current_step.is_broken():
+                if self.current_step.index > 0 and self.current_step.is_broken():
                     msg_rect = pygame.Rect((ERROR_AREA_OFFSET[0] + ERROR_AREA_PADDING,
                                             ERROR_AREA_OFFSET[1] + ERROR_AREA_PADDING,
                                             ERROR_AREA_WIDTH - 2 * ERROR_AREA_PADDING,
@@ -212,12 +230,16 @@ class SudokuVisualize:
                     if event.key == pygame.K_RIGHT:
                         self.next_step()
                     if event.key == pygame.K_UP:
-                        self.next_step()
+                        self.ff_10_steps()
                     if event.key == pygame.K_DOWN:
-                        self.prev_step()
+                        self.rew_10_steps()
+                    if event.key == pygame.K_l:
+                        self.go_to_last_step()
+                    if event.key == pygame.K_f:
+                        self.go_to_first_step()
+
 
                 self.draw()
-                self._clock.tick(5)
 
     def quit(self):
         pygame.quit()
@@ -225,9 +247,11 @@ class SudokuVisualize:
 
 if __name__ == "__main__":
     from sudoku import Sudoku
-
+    # hard:
     # init_str = '4-8---9--9---4-7----6----48-8---1-7---5--------18-24-6-3-----5-81-3--------98---7'
-    init_str = '--1----9----915-------784-26-----7--5----2--14--8------4--2-8-7--349------7------'
+    # init_str = '--1----9----915-------784-26-----7--5----2--14--8------4--2-8-7--349------7------'
+    # extreme:
+    init_str = '----8---9-6-9--18---4-3----1--5-4--6---3-754----------5-7----1-84---3-----9---7-2'
     s = Sudoku(init_values=init_str, step_resolution=5)
     s.solve_clean()
     sv = SudokuVisualize(steps=s.steps)
