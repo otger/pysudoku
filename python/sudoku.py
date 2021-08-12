@@ -5,6 +5,13 @@ import numpy as np
 DEBUG = False
 
 
+class Status:
+    UNKNOWN = 0
+    SOLVED = 1
+    UNSOLVED = 2
+    UNSOLVABLE = 3
+
+
 class Matrix:
     def __init__(self, v):
         self.v = v
@@ -111,8 +118,9 @@ class OptionsMatrix(SudokuMatrixMultiValue):
 
     def is_broken(self):
         """
-        Check if a single option is repeated inside the block. Should be checked also on the row and col
+        Check if several cells in a row, column or block have the same unique value as option
         """
+        errors = []
         for bi in range(3):
             for bj in range(3):
                 b = self.get_block(bi, bj)
@@ -120,11 +128,22 @@ class OptionsMatrix(SudokuMatrixMultiValue):
                 for s in self.symbols:
                     arr = [s in x and len(x) == 1 for x in flat]
                     if np.count_nonzero(np.array(arr)) > 1:
-                        ix = arr.index(True)
-                        r = bi * 3 + ix // 3
-                        c = bj * 3 + ix % 3
-                        return r, c
-        return False
+                        errors.append(f"Found several cells on block {bi*3+bj} with unique option '{s}'")
+        for ri in range(len(self.symbols)):
+            b = self.get_row(ri)
+            flat = b.flatten()
+            for s in self.symbols:
+                arr = [s in x and len(x) == 1 for x in flat]
+                if np.count_nonzero(np.array(arr)) > 1:
+                    errors.append(f"Found several cells on row {ri} with unique option '{s}'")
+        for ci in range(len(self.symbols)):
+            b = self.get_column(ci)
+            flat = b.flatten()
+            for s in self.symbols:
+                arr = [s in x and len(x) == 1 for x in flat]
+                if np.count_nonzero(np.array(arr)) > 1:
+                    errors.append(f"Found several cells on column {ri} with unique option '{s}'")
+        return errors
 
 
 class Resolutions:
@@ -189,35 +208,47 @@ class Step:
 
 
 class StepResolution:
-    all = 10
+    all = 0
     mid = 5
-    none = 0
+    none = 100
 
 
 class Sudoku:
 
-    def __init__(self, init_values: str, options_str: str = '', step_resolution=StepResolution.all) -> None:
+    def __init__(self, init_values: str, options_str: str or None=None, step_resolution=StepResolution.all,
+                init_step: None or Step =None) -> None:
         if len(init_values) != 81:
             raise ValueError("Invalid Sudoku input")
         self._symbols = sorted(list(set(init_values)))
         self._symbols.pop(self._symbols.index('-'))
-        if len(self._symbols) != 9:
+        if len(self._symbols) < 9:
+            # Symbols could be any ascii character, but we fill missing ones with numbers
             for i in range(9):
                 if str(i) not in self._symbols:
                     self._symbols.append(str(i))
                 if len(self._symbols) == 9:
                     break
+        elif len(self._symbols) > 9:
+            raise ValueError("Too many symbols")
+
         self.sr = step_resolution
-        self._original = SudokuMatrix(init_values)
+        self.init_values = SudokuMatrix(init_values)
         self._solution = SudokuMatrix(init_values)
-        if options_str:
-            self._options = OptionsMatrix.from_str(options_str)
-        else:
+        if options_str is None:
             self._options = OptionsMatrix(self._symbols)
+            self._scanned_options = False
+        else:
+            self._options = OptionsMatrix.from_str(options_str)
+            self._scanned_options = True
 
         self.iterations = 0
-        self.costs = []
-        self.steps = [Step(self._solution.as_str(), self._options.as_str(), msg='Initial state', prev_step=None)]
+        self.costs = {'iterations': [],
+                      'guesses': 0}
+        if init_step is None:
+            self.steps = [Step(self._solution.as_str(), self._options.as_str(), msg='Initial State', prev_step=None)]
+        else:
+            self.steps = [init_step]
+
 
     @property
     def solution(self):
@@ -240,10 +271,10 @@ class Sudoku:
 
     @property
     def cost(self):
-        return sum(self.costs)
+        return sum(self.costs['iterations']) + 3**self.costs['guesses']
 
     def add_step(self, message, resolution: int = 0):
-        if resolution < self.sr:
+        if resolution > self.sr:
             self.steps.append(Step(self._solution.as_str(), self._options.as_str(), msg=message,
                                    prev_step=self.steps[-1], index=len(self.steps)))
 
@@ -255,7 +286,7 @@ class Sudoku:
                 if self._solution.v[r, c] != '-':
                     modified |= self._options.found_value_clean(r, c, self._solution.v[r, c])
         if modified:
-            self.add_step('Cleaned options')
+            self.add_step('Cleaned options', 5)
             return True
         return False
 
@@ -288,9 +319,9 @@ class Sudoku:
                         if changes:
                             new_it = self.clean_options_in_single_row_of_block(iterations + 1, skip)
                             if iterations == 0:
-                                print("rows", skip)
+                                # print("rows", skip)
                                 self.add_step("Found values only in a column or row of blocks and cleaned outside the"
-                                              f" block.\nDid {new_it} iterations.", 4)
+                                              f" block.\nDid {new_it} iterations.", 6)
                             return new_it
         return iterations
 
@@ -326,9 +357,9 @@ class Sudoku:
                         if changes:
                             new_it = self.clean_options_in_single_col_of_block(iterations + 1, skip)
                             if iterations == 0:
-                                print(skip)
+                                # print(skip)
                                 self.add_step(f"Found option value only in a column of block {bi*3+bj} and cleaned"
-                                              f" outside it.\nDid {new_it} iterations.", 4)
+                                              f" outside it.\nDid {new_it} iterations.", 6)
                             return new_it
         return iterations
 
@@ -379,7 +410,7 @@ class Sudoku:
                                     skip.append((bi, bj, i, j, el))
                                     if self._clean_couples(bi, bj, bin[el], (i, j), el):
                                         self.add_step(f"Found same 2 values [{el}] in a row or a col on a "
-                                                      f"block [{3*bi + bj}. Cleaned it. Iteration: {iteration}")
+                                                      f"block [{3*bi + bj}. Cleaned it. Iteration: {iteration}", 6)
                                         return self.clean_couples(iteration + 1, skip)
 
                                 else:
@@ -388,7 +419,8 @@ class Sudoku:
 
     def solve_clean(self) -> tuple:
         loop = True
-        self.scan_blocks()
+        if self._scanned_options is False:
+            self.scan_blocks()
         while loop:
             loop = 0
             self.iterations += 1
@@ -407,7 +439,7 @@ class Sudoku:
 
             loop += self.clean_couples()
 
-            self.costs.append(loop)
+            self.costs['iterations'].append(loop)
             if self.solved():
                 return Resolutions.solved, None
             if self.is_broken():
@@ -418,23 +450,82 @@ class Sudoku:
             return Resolutions.unsolvable, self.is_broken()
         return Resolutions.unsolved, None
 
-    def solve_brute(self) -> bool:
-        pass
+    def solve_guessing(self) -> bool:
+        # Solve using logic
+        self.solve_clean()
+        if self.solved():
+            return Status.SOLVED
+        if self.is_broken():
+            return Status.UNSOLVABLE
+        # Solve using guessing
+        i, j, els = self._guess_numbers()
+        self.costs['guesses'] += 1
+        for e in els:
+            print(f"Guessing {i, j, e}")
+            s = Sudoku(self._solution.as_str(), options_str=self._options.as_str(),
+                       init_step=self.steps[-1])
+            s.set_solution(e, i, j, msg=f"Guessing {e} in row {i} col {j}")
+            status = s.solve_guessing()
+            if status == Status.SOLVED:
+                self.steps.extend(s.steps)
+                self._solution = s._solution
+                self._options = s._options
+                self.costs['guesses'] += s.costs['guesses']
+                self.costs['iterations'].extend(s.costs['iterations'])
+                return status
+        return Status.UNSOLVABLE
+    
+    def _guess_numbers(self):
+        '''Return a cell and a possible number to guess. It will return cells with minimal amount of options to maximize probability 
+        of correct guessing.
+        It would be better to  find repetead cells and guess them first.
+        '''
+        opts = [len(x) if x else 1000 for x in self._options.v.flatten()]
+        min_opts = np.min(opts)
+        if min_opts == 1000:
+            return False
+        i = opts.index(min_opts)
+        bi = i // len(self._symbols)
+        bj = i % len(self._symbols)
+        return bi, bj, self._options.v[bi, bj]
+
 
     def is_broken(self):
+        errors = self._options.is_broken()
         for i, row in enumerate(self._solution.v):
             for j, cell in enumerate(row):
                 if cell == '-':
                     if len(self._options.v[i, j]) == 0:
-                        return i, j
-        return False
+                        errors.append(f"Cell [{i * 9 + j}] is empty")
+        for i, row in enumerate(self._options.v):
+            sols_row = self._solution.get_row(i)
+            fl_opt_row = row.flatten()
+            fl_sol_row = sols_row.flatten()
+            for el in self._symbols:
+                el_in_opt_row = [el in x for x in fl_opt_row]
+                el_in_sol_row = [el in x for x in fl_sol_row]
+                if np.count_nonzero(el_in_sol_row) + np.count_nonzero(el_in_opt_row) == 0:
+                    errors.append(f"Row [{i}] doesn't contain '{el}' in solutions nor options")
+
+        for i in range(len(self._symbols)):
+            sols_col = self._solution.get_column(i)
+            opts_col = self._options.get_column(i)
+            fl_opt_col = opts_col.flatten()
+            fl_sol_col = sols_col.flatten()
+            for el in self._symbols:
+                el_in_opt_col = [el in x for x in fl_opt_col]
+                el_in_sol_col = [el in x for x in fl_sol_col]
+                if np.count_nonzero(el_in_sol_col) + np.count_nonzero(el_in_opt_col) == 0:
+                    errors.append(f"Column [{i}] doesn't contain '{el}' in solutions nor options")
+
+        return errors
 
     def set_solution(self, value, row, column, msg=''):
         if self._solution.v[row, column] == '-':
             self._solution.v[row, column] = value
             self._options.found_value_clean(row, column, value)
             if msg:
-                self.add_step(msg, 1)
+                self.add_step(msg, 100)
             return True
         return False
 
@@ -509,8 +600,9 @@ class Sudoku:
                                     self._options.v[r, c] = self._options.v[r, c] + s
                                     found_opts = True
                 if found_opts:
-                    self.add_step(f"Scanned block {3*bi + bj} looking for options", resolution=7)
-        self.add_step("Initial scan blocks looking for options", 3)
+                    self.add_step(f"Scanned block {3*bi + bj} looking for options", resolution=1)
+        self.add_step("Initial scan blocks looking for options", 6)
+        self._scanned_options = True
 
 
 if __name__ == '__main__':
@@ -525,23 +617,19 @@ if __name__ == '__main__':
     # init_str = '-8--9-65--7-4------51------6----3---1-9--8--2-4---7-9-----1--6---2---8-5---3-21--'
     # Hard
     # init_str = '4-8---9--9---4-7----6----48-8---1-7---5--------18-24-6-3-----5-81-3--------98---7'
+    init_str = '--1----9----915-------784-26-----7--5----2--14--8------4--2-8-7--349------7------'
     # Extreme (easy)
     # init_str = '----8---9-6-9--18---4-3----1--5-4--6---3-754----------5-7----1-84---3-----9---7-2'
     # Extreme
-    init_str = '--5-----8---18---7-----412---9-----2-4-3--5--5-6--7-8-6---9---1-2---5----9-6--7--'
+    # init_str = '--5-----8---18---7-----412---9-----2-4-3--5--5-6--7-8-6---9---1-2---5----9-6--7--'
+    # init_str = '7-3-----6-1---9----961---3-5----79-4---81-2-----5-------24----8---------3-4----6-'
+    # init_str = '---1--9---7-----6---2-4-5-18--65--4---7--8-1--6-4------59-1---23---2-7-5---------'
+    # init_str = '--9--7-4--71-2---5-4-----39-----8------46------219-8---6----4---9-2865--5--------'
     s = Sudoku(init_str)
-    print(s._original)
-    print(s._options)
-    res = s.solve_clean()
-    print(Resolutions.as_str(res[0]), res)
-    print(s._solution)
-    print(s._options)
-    print(s.iterations)
+    s.solve_guessing()
     print(s.solved())
     print(s.cost, s.costs)
-    # a = s._options.as_str()
-    # b = OptionsMatrix.from_str(a)
-    # print(b)
+
     from pygame_sudoku import SudokuVisualize
     sv =SudokuVisualize(steps=s.steps)
     sv.run()
