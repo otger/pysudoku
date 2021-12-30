@@ -108,7 +108,7 @@ class SudokuVisualize:
     def draw(self):
         self.GUI.fill(BACKGROUND_COLOR)
         sols = self.current_step.solutions
-        opts = self.current_step.options
+        opts = self.current_step.candidates
         font_sols = pygame.font.Font("Roboto/Roboto-Medium.ttf", int(CELL_WIDTH / 1.1))
         font_opts = pygame.font.Font("Roboto/Roboto-Regular.ttf", int(CELL_WIDTH / 3.3))
         font_msg = pygame.font.Font("Roboto/Roboto-Regular.ttf", EXPLANATION_TEXT_SIZE)

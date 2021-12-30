@@ -13,6 +13,53 @@ class Status:
     UNSOLVABLE = 3
 
 
+# https://www.sudokuoftheday.com/about/difficulty/
+# https://www.sudokuoftheday.com/techniques/
+class StepType:
+    SingleCandidate = 'scd'
+    SinglePosition = 'spo'
+    CandidateLines = 'cdl'
+    DoublePairs = 'dbp'
+    MultipleLines = 'mtl'
+    NakedPair = 'nkp'
+    HiddenPair = 'hdp'
+    NakedTriple = 'nkt'
+    HiddenTriple = 'hdt'
+    XWing = 'xwg'
+    ForcingChains = 'fcc'
+    NakedQuad = 'nkq'
+    HiddenQuad = 'hdq'
+    Swordfish = 'swf'
+    Guessing = 'gsg'
+    CleanCandidates = 'cct'
+    Unknown = 'unk'
+    ScanCandidates = 'scan'
+    InitState = 'init'
+
+
+StepsCosts = {
+    StepType.SingleCandidate: {'first': 100, 'seconds': 100},
+    StepType.SinglePosition: {'first': 100, 'seconds': 100},
+    StepType.CandidateLines: {'first': 350, 'seconds': 200},
+    StepType.DoublePairs: {'first': 500, 'seconds': 250},
+    StepType.MultipleLines: {'first': 700, 'seconds': 400},
+    StepType.NakedPair: {'first': 750, 'seconds': 500},
+    StepType.HiddenPair: {'first': 1500, 'seconds': 1200},
+    StepType.NakedTriple: {'first': 2000, 'seconds': 1400},
+    StepType.HiddenTriple: {'first': 2400, 'seconds': 1600},
+    StepType.XWing: {'first': 2800, 'seconds': 1600},
+    StepType.ForcingChains: {'first': 4200, 'seconds': 2100},
+    StepType.NakedQuad: {'first': 5000, 'seconds': 4000},
+    StepType.HiddenQuad: {'first': 7000, 'seconds': 5000},
+    StepType.Swordfish: {'first': 8000, 'seconds': 6000},
+    StepType.Guessing: {'first': 9000, 'seconds': 10000},
+    StepType.CleanCandidates: {'first': 0, 'seconds': 0},
+    StepType.Unknown: {'first': 0, 'seconds': 0},
+    StepType.ScanCandidates: {'first': 0, 'seconds': 0},
+    StepType.InitState: {'first': 0, 'seconds': 0},
+}
+
+
 class Matrix:
     def __init__(self, v):
         self.v = v
@@ -164,17 +211,28 @@ class Resolutions:
 
 
 class Step:
-    def __init__(self, solutions_str, candidates_str, msg='', prev_step=None, index=0):
+    def __init__(self, solutions_str, candidates_str, step_type: str, msg='', prev_step=None,
+                 index=0):
         self.solutions = SudokuMatrix(solutions_str)
         self.candidates = CandidatesMatrix.from_str(candidates_str)
+        self.step_type = step_type
         self.msg = msg
         self.prev = prev_step
+        self.acc_types = [self.step_type]
         if prev_step:
             prev_step.next = self
+            self.acc_types.extend(prev_step.acc_types)
         self.next = None
         self.index = index
         self.symbols = [a for a in list(set(self.solutions.v.flatten())) if a != '-']
         self.fill_symbols()
+
+    @property
+    def cost(self):
+        _repeat = 'first'
+        if self.acc_types.count(self.step_type) > 1:
+            _repeat = 'seconds'
+        return StepsCosts[self.step_type][_repeat]
 
     def fill_symbols(self):
         if len(self.symbols) < 9:
@@ -223,6 +281,7 @@ class Sudoku:
         self.sr = step_resolution
         self.init_str = init_values
         self._clues = SudokuMatrix(init_values)
+        self.solve_tree = []
 
         self._symbols = None
         self.fill_symbols()
@@ -238,7 +297,8 @@ class Sudoku:
         self.costs = {'iterations': [],
                       'guesses': 0}
         if init_step is None:
-            self.steps = [Step(self._clues.as_str(), self._candidates.as_str(), msg='Initial State', prev_step=None)]
+            self.steps = [Step(self._clues.as_str(), self._candidates.as_str(), step_type=StepType.InitState,
+                          msg='Initial State', prev_step=None)]
         else:
             self.steps = [init_step]
 
@@ -279,11 +339,14 @@ class Sudoku:
 
     @property
     def cost(self):
-        return sum(self.costs['iterations']) + 3 ** self.costs['guesses']
+        cost = 0
+        for ste in self.steps:
+            cost += ste.cost
+        return cost
 
-    def add_step(self, message, resolution: int = 0):
+    def add_step(self, step_type: str, message, resolution: int = 100):
         if resolution > self.sr:
-            self.steps.append(Step(self._clues.as_str(), self._candidates.as_str(), msg=message,
+            self.steps.append(Step(self._clues.as_str(), self._candidates.as_str(), step_type=step_type, msg=message,
                                    prev_step=self.steps[-1], index=len(self.steps)))
 
     def clean_candidates(self):
@@ -294,7 +357,7 @@ class Sudoku:
                 if self._clues.v[r, c] != '-':
                     modified |= self._candidates.found_value_clean(r, c, self._clues.v[r, c])
         if modified:
-            self.add_step('Cleaned candidates', 5)
+            self.add_step(step_type=StepType.CleanCandidates, message='Cleaned candidates', resolution=5)
             return True
         return False
 
@@ -322,15 +385,17 @@ class Sudoku:
                             if i < bj * 3 or i > bj * 3 + 2:
                                 if s in self._candidates.v[bi * 3 + brix, i]:
                                     changes = True
-                                    self._candidates.v[bi * 3 + brix, i] = self._candidates.v[bi * 3 + brix, i].replace(s, '')
+                                    self._candidates.v[bi * 3 + brix, i] = self._candidates.v[bi * 3 + brix, i].replace(
+                                        s, '')
                         skip.append((bi, bj, s))
                         if changes:
-                            new_it = self.clean_candidates_in_single_row_of_block(iterations + 1, skip)
+                            # new_it = self.clean_candidates_in_single_row_of_block(iterations + 1, skip)
                             if iterations == 0:
                                 # print("rows", skip)
-                                self.add_step("Found values only in a column or row of blocks and cleaned outside the"
-                                              f" block.\nDid {new_it} iterations.", 6)
-                            return new_it
+                                self.add_step(step_type=StepType.CandidateLines,
+                                              message=f"Found candidate value {s} only in a row of block {bi * 3 + bj} "
+                                                      f"and cleaned outside it.\n")
+                            return 1
         return iterations
 
     def clean_candidates_in_single_col_of_block(self, iterations=0, skip=[]) -> int:
@@ -360,15 +425,18 @@ class Sudoku:
                                 if s in self._candidates.v[i, bj * 3 + bcix]:
                                     changes = True
                                     # print(bi, bj, s, bopt, bin, bycols, bcix)
-                                    self._candidates.v[i, bj * 3 + bcix] = self._candidates.v[i, bj * 3 + bcix].replace(s, '')
+                                    self._candidates.v[i, bj * 3 + bcix] = self._candidates.v[i, bj * 3 + bcix].replace(
+                                        s, '')
                         skip.append((bi, bj, s))
                         if changes:
-                            new_it = self.clean_candidates_in_single_col_of_block(iterations + 1, skip)
+                            # new_it = self.clean_candidates_in_single_col_of_block(iterations + 1, skip)
                             if iterations == 0:
                                 # print(skip)
-                                self.add_step(f"Found candidate value only in a column of block {bi * 3 + bj} and cleaned"
-                                              f" outside it.\nDid {new_it} iterations.", 6)
-                            return new_it
+                                self.add_step(
+                                    step_type=StepType.CandidateLines,
+                                    message=f"Found candidate value {s} only in a column of block {bi * 3 + bj} and "
+                                            f"cleaned outside it.\n")
+                            return 1
         return iterations
 
     def _clean_couples(self, bi, bj, ij_0, ij_1, values):
@@ -395,8 +463,9 @@ class Sudoku:
                 for j in range(3):
                     if (i, j) not in [ij_0, ij_1]:
                         for v in values:
-                            self._candidates.v[bi * 3 + i, bj * 3 + j] = self._candidates.v[bi * 3 + i, bj * 3 + j].replace(v,
-                                                                                                                      '')
+                            self._candidates.v[bi * 3 + i, bj * 3 + j] = self._candidates.v[
+                                bi * 3 + i, bj * 3 + j].replace(v,
+                                                                '')
         return values_in_row_or_col
 
     def clean_couples(self, iteration=0, skip=[]):
@@ -418,47 +487,58 @@ class Sudoku:
                                 if el in bin:
                                     skip.append((bi, bj, i, j, el))
                                     if self._clean_couples(bi, bj, bin[el], (i, j), el):
-                                        self.add_step(f"Found same 2 values [{el}] in a row or a col on a "
-                                                      f"block [{3 * bi + bj}. Cleaned it. Iteration: {iteration}", 6)
-                                        return self.clean_couples(iteration + 1, skip)
-
+                                        self.add_step(step_type=StepType.NakedPair,
+                                                      message=f"Found same 2 values [{el}] in a row or a col on a "
+                                                              f"block [{3 * bi + bj}. Cleaned it")
+                                        # return self.clean_couples(iteration + 1, skip)
+                                        return 1
                                 else:
                                     bin[el] = (i, j)
         return iteration
 
     def solve_clean(self) -> tuple:
-        loop = True
         if self._scanned_candidates is False:
             self.scan_blocks()
-        while loop:
-            loop = 0
-            self.iterations += 1
-            if self.clean_candidates():
-                loop += 1
-            loop += self.find_block_single_candidates()
-
-            loop += self.find_row_single_candidates()
-
-            loop += self.find_column_single_candidates()
-
-            loop += self.find_single_candidates()
-
-            loop += self.clean_candidates_in_single_col_of_block()
-            loop += self.clean_candidates_in_single_row_of_block()
-
-            loop += self.clean_couples()
-
-            self.costs['iterations'].append(loop)
+        while True:
             if self.solved():
                 self.valid_solutions.append(self.as_str())
                 return Resolutions.solved, None
             if self.is_broken():
                 return Resolutions.unsolvable, self.is_broken()
-        if self.solved():
-            self.valid_solutions.append(self.as_str())
-            return Resolutions.solved, None
-        if self.is_broken():
-            return Resolutions.unsolvable, self.is_broken()
+
+            if self.clean_candidates():
+                self.solve_tree.append(0)
+                continue
+            else:
+                if self.find_single_candidates():
+                    self.solve_tree.append(1)
+                    continue
+                else:
+                    if self.find_column_single_candidates():
+                        self.solve_tree.append(2)
+                        continue
+                    else:
+                        if self.find_row_single_candidates():
+                            self.solve_tree.append(3)
+                            continue
+                        else:
+                            if self.find_block_single_candidates():
+                                self.solve_tree.append(4)
+                                continue
+                            else:
+                                if self.clean_candidates_in_single_col_of_block():
+                                    self.solve_tree.append(5)
+                                    continue
+                                else:
+                                    if self.clean_candidates_in_single_row_of_block():
+                                        self.solve_tree.append(6)
+                                        continue
+                                    else:
+                                        if self.clean_couples():
+                                            self.solve_tree.append(7)
+                                            continue
+                                        else:
+                                            break
         return Resolutions.unsolved, None
 
     def solve_guessing(self, randomize=False, find_all=False) -> int:
@@ -475,7 +555,9 @@ class Sudoku:
             # print(f"Guessing {i, j, e}, empty seats: {self.num_of_missing_cells}")
             s = Sudoku(self._clues.as_str(), candidates_str=self._candidates.as_str(),
                        init_step=self.steps[-1])
-            s.set_solution(e, i, j, msg=f"Guessing {e} in row {i} col {j}")
+            s.set_solution(e, i, j)
+            s.add_step(step_type=StepType.Guessing,
+                       message=f"Guessing value {e} on position [{i}, {j}]")
             status = s.solve_guessing(find_all=find_all)
             if status == Status.SOLVED:
                 if find_all is False:
@@ -495,16 +577,16 @@ class Sudoku:
         return Status.UNSOLVABLE
 
     def _guess_numbers(self, randomize=False):
-        '''Return a cell and a possible number to guess. It will return cells with minimal amount of candidates to maximize probability 
+        '''Return a cell and a possible number to guess. It will return cells with minimal amount of candidates to maximize probability
         of correct guessing.
         It would be better to  find repetead cells and guess them first.
         '''
         if randomize is False:
-            opts = [len(x) if x else 1000 for x in self._candidates.v.flatten()]
-            min_opts = np.min(opts)
-            if min_opts == 1000:
+            candidates = [len(x) if x else 1000 for x in self._candidates.v.flatten()]
+            min_candidates = np.min(candidates)
+            if min_candidates == 1000:
                 return False
-            i = opts.index(min_opts)
+            i = candidates.index(min_candidates)
             bi = i // len(self._symbols)
             bj = i % len(self._symbols)
             return bi, bj, self._candidates.v[bi, bj]
@@ -532,8 +614,8 @@ class Sudoku:
 
         for i in range(len(self._symbols)):
             sols_col = self._clues.get_column(i)
-            opts_col = self._candidates.get_column(i)
-            fl_opt_col = opts_col.flatten()
+            candidates_col = self._candidates.get_column(i)
+            fl_opt_col = candidates_col.flatten()
             fl_sol_col = sols_col.flatten()
             for el in self._symbols:
                 el_in_opt_col = [el in x for x in fl_opt_col]
@@ -543,12 +625,10 @@ class Sudoku:
 
         return errors
 
-    def set_solution(self, value, row, column, msg=''):
+    def set_solution(self, value, row, column):
         if self._clues.v[row, column] == '-':
             self._clues.v[row, column] = value
             self._candidates.found_value_clean(row, column, value)
-            if msg:
-                self.add_step(msg, 100)
             return True
         return False
 
@@ -562,18 +642,22 @@ class Sudoku:
                         ix = arr.index(True)
                         r = bi * 3 + ix // 3
                         c = bj * 3 + ix % 3
-                        if self.set_solution(s, r, c,
-                                             f"Found only one candidate for value {s} on block {3 * bi + bj}: [{r}, {c}]"):
-                            return self.find_block_single_candidates(found + 1)
+                        if self.set_solution(s, r, c):
+                            self.add_step(step_type=StepType.SingleCandidate,
+                                          message=f"Found only one candidate for value {s} on block {3 * bi + bj}: "
+                                                  f"[{r}, {c}]")
+                            return 1
         return found
 
     def find_single_candidates(self, found=0) -> int:
         for r in range(9):
             for c in range(9):
                 if self._clues.v[r, c] == '-' and len(self._candidates.v[r, c]) == 1:
-                    if self.set_solution(self._candidates.v[r, c], r, c,
-                                         f"Found single candidate on row {r} column {c}, with value {self._candidates.v[r, c]}"):
-                        return self.find_single_candidates(found + 1)
+                    if self.set_solution(self._candidates.v[r, c], r, c):
+                        self.add_step(step_type=StepType.SingleCandidate,
+                                      message=f"Found single candidate on row {r} column {c}, with value "
+                                              f"{self._candidates.v[r, c]}")
+                        return 1
         return found
 
     def solved(self) -> bool:
@@ -594,8 +678,11 @@ class Sudoku:
                 arr = [s in x for x in line.flatten()]
                 if np.count_nonzero(np.array(arr)) == 1:
                     cix = arr.index(True)
-                    if self.set_solution(s, rix, cix, f"Found single candidate for value {s} on row {rix} [column {cix}]"):
-                        return self.find_row_single_candidates(found + 1)
+                    if self.set_solution(s, rix, cix):
+                        self.add_step(step_type=StepType.SingleCandidate,
+                                      message=f"Found single candidate for value {s} on row {rix} [column {cix}]")
+                        # return self.find_row_single_candidates(found + 1)
+                        return 1
         return found
 
     def find_column_single_candidates(self, found=0) -> int:
@@ -605,14 +692,16 @@ class Sudoku:
                 arr = [s in x for x in line]
                 if np.count_nonzero(np.array(arr)) == 1:
                     rix = arr.index(True)
-                    if self.set_solution(s, rix, c, f"Found single candidate for value {s} on column {c} [row {rix}]"):
-                        return self.find_column_single_candidates(found + 1)
+                    if self.set_solution(s, rix, c):
+                        self.add_step(step_type=StepType.SingleCandidate,
+                                      message=f"Found single candidate for value {s} on column {c} [row {rix}]")
+                        # return self.find_column_single_candidates(found + 1)
+                        return 1
         return found
 
     def scan_blocks(self):
         for bi in range(3):
             for bj in range(3):
-                found_opts = False
                 block = self._clues.get_block(bi, bj)
                 for r in range(bi * 3, bi * 3 + 3):
                     for c in range(bj * 3, bj * 3 + 3):
@@ -622,10 +711,9 @@ class Sudoku:
                                     continue
                                 if s not in self._candidates.v[r, c]:
                                     self._candidates.v[r, c] = self._candidates.v[r, c] + s
-                                    found_opts = True
-                if found_opts:
-                    self.add_step(f"Scanned block {3 * bi + bj} looking for candidates", resolution=1)
-        self.add_step("Initial scan blocks looking for candidates", 6)
+        self.add_step(step_type=StepType.ScanCandidates,
+                      message=f"Scanned blocks setting candidates",
+                      resolution=10)
         self._scanned_candidates = True
 
 
@@ -646,19 +734,24 @@ if __name__ == '__main__':
     # init_str = '----8---9-6-9--18---4-3----1--5-4--6---3-754----------5-7----1-84---3-----9---7-2'
     # Extreme
     # init_str = '--5-----8---18---7-----412---9-----2-4-3--5--5-6--7-8-6---9---1-2---5----9-6--7--'
+    init_str = '235----7---8----------23-4-864--------7--6-85----72----5--67-18--1------9--1---23'
+
+    # others
+    init_str = '-86---1-----9-6---5---1--27-24-3--5----6-4----6--9-24-89--5---3---7-9-----1---97-'
     # init_str = '7-3-----6-1---9----961---3-5----79-4---81-2-----5-------24----8---------3-4----6-'
     # init_str = '---1--9---7-----6---2-4-5-18--65--4---7--8-1--6-4------59-1---23---2-7-5---------'
     # init_str = '--9--7-4--71-2---5-4-----39-----8------46------219-8---6----4---9-2865--5--------'
-    init_str = '346----5-5-----6----73------7-6-84-----9-2---2-3--5---4-5-632-7-----7-48-3---1-69'
+    # init_str = '346----5-5-----6----73------7-6-84-----9-2---2-3--5---4-5-632-7-----7-48-3---1-69'
     # init_str = '236-8-41--8-1--62-1--2---39-62--7--1-73---56-41---2---794-2-------9--28--2------6'
-    init_str = '----1-78-58---7--41--83---68-2-4196-----62-----1--8-2----1-3-----528---33---9-87-'
+    # init_str = '----1-78-58---7--41--83---68-2-4196-----62-----1--8-2----1-3-----528---33---9-87-'
     s = Sudoku(init_str)
     print(f"missing cells: {s.num_of_missing_cells}")
     s.solve_guessing(find_all=True)
     # print(len(s.valid_solutions))
     # for x in s.valid_solutions:
     #     print(x.as_str())
-
+    print(s.init_str, s.init_str.count('-'), s.cost, s.solved(), len(s.valid_solutions), '|'.join([x.step_type for x in s.steps]))
+    # print(s.solve_tree)
     from pygame_sudoku import SudokuVisualize
 
     sv = SudokuVisualize(steps=s.steps)

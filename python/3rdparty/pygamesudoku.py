@@ -151,7 +151,7 @@ def instruction():
     screen.blit(text2, (20, 540))
 
 
-# Display options when solved
+# Display candidates when solved
 def result():
     text1 = font1.render("FINISHED PRESS R or D", 1, (0, 0, 0))
     screen.blit(text1, (20, 570))

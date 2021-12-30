@@ -1,4 +1,4 @@
-from sudoku import Sudoku
+from sudoku2 import Sudoku
 import random
 
 
@@ -10,7 +10,11 @@ def generate():
         prev = current
         init_list = list(current.init_str)
         non_empty_indexes = [i for i, x in enumerate(init_list) if x != '-']
-        init_list[random.choice(non_empty_indexes)] = '-'
+        selected_ix = random.choice(non_empty_indexes)
+
+        init_list[selected_ix] = '-'
+        # We remove the mirror position. If selected_ix is row r and col c (r,c), we also remove (8-r, 8-c) (0 based)
+        init_list[80-selected_ix] = '-'
         init_str = ''.join(init_list)
         current = Sudoku(init_values=init_str)
         current.solve_guessing(find_all=True)
@@ -20,12 +24,13 @@ def generate():
 
 if __name__ == "__main__":
     i = 0
-    with open("sudokus3.csv", "a") as fp:
+    with open("sudokus4.csv", "a") as fp:
         while i < 10000:
             s = generate()
             s = Sudoku(s.init_str)
             s.solve_guessing(find_all=True)
-            fp.write(f"{s.init_str}, {s.init_str.count('-')}, {s.costs['guesses']}, {s.solved()}, {'|'.join([str(x) for x in s.costs['iterations']])}, {len(s.valid_solutions)}\n")
-            print(f"{s.init_str}, {s.init_str.count('-')}, {s.costs['guesses']}, {s.solved()}, {'|'.join([str(x) for x in s.costs['iterations']])}, {len(s.valid_solutions)}")
+            t = f"{s.init_str}, {s.init_str.count('-')}, {s.cost}, {s.solved()}, {len(s.valid_solutions)}, {'|'.join([x.step_type for x in s.steps])}"
+            fp.write(f"{t}\n")
+            print(t)
             fp.flush()
             i += 1
