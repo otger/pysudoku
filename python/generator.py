@@ -20,12 +20,12 @@ def generate():
 
 if __name__ == "__main__":
     i = 0
-    with open("sudokus.csv", "a") as fp:
+    with open("sudokus3.csv", "a") as fp:
         while i < 10000:
             s = generate()
             s = Sudoku(s.init_str)
-            s.solve_guessing()
-            fp.write(f"{s.init_str}, {s.init_str.count('-')}, {s.costs['guesses']}, {s.solved()}, {'|'.join([str(x) for x in s.costs['iterations']])}\n")
-            print(f"{s.init_str}, {s.init_str.count('-')}, {s.costs['guesses']}, {s.solved()}, {'|'.join([str(x) for x in s.costs['iterations']])}")
+            s.solve_guessing(find_all=True)
+            fp.write(f"{s.init_str}, {s.init_str.count('-')}, {s.costs['guesses']}, {s.solved()}, {'|'.join([str(x) for x in s.costs['iterations']])}, {len(s.valid_solutions)}\n")
+            print(f"{s.init_str}, {s.init_str.count('-')}, {s.costs['guesses']}, {s.solved()}, {'|'.join([str(x) for x in s.costs['iterations']])}, {len(s.valid_solutions)}")
             fp.flush()
             i += 1

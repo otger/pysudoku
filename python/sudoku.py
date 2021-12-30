@@ -220,22 +220,13 @@ class Sudoku:
                  init_step: Step = None) -> None:
         if len(init_values) != 81:
             raise ValueError("Invalid Sudoku input")
-        self._symbols = sorted(list(set(init_values)))
-        if '-' in self._symbols:
-            self._symbols.pop(self._symbols.index('-'))
-        if len(self._symbols) < 9:
-            # Symbols could be any ascii character, but we fill missing ones with numbers
-            for i in range(1, 10):
-                if str(i) not in self._symbols:
-                    self._symbols.append(str(i))
-                if len(self._symbols) == 9:
-                    break
-        elif len(self._symbols) > 9:
-            raise ValueError("Too many symbols")
-
         self.sr = step_resolution
         self.init_str = init_values
         self._clues = SudokuMatrix(init_values)
+
+        self._symbols = None
+        self.fill_symbols()
+
         if options_str is None:
             self._options = OptionsMatrix(self._symbols)
             self._scanned_options = False
@@ -270,12 +261,18 @@ class Sudoku:
         return self.as_str()[0].count('-')
 
     def fill_symbols(self):
-        if len(self._symbols) != 9:
-            for i in range(9):
+        self._symbols = sorted(list(set(self.init_str)))
+        if '-' in self._symbols:
+            self._symbols.pop(self._symbols.index('-'))
+        if len(self._symbols) < 9:
+            # Symbols could be any ascii character, but we fill missing ones with numbers
+            for i in range(1, 10):
                 if str(i) not in self._symbols:
                     self._symbols.append(str(i))
                 if len(self._symbols) == 9:
                     break
+        elif len(self._symbols) > 9:
+            raise ValueError("Too many symbols")
 
     def as_str(self):
         return self._clues.as_str(), self._options.as_str()
@@ -453,23 +450,25 @@ class Sudoku:
 
             self.costs['iterations'].append(loop)
             if self.solved():
+                self.valid_solutions.append(self.as_str())
                 return Resolutions.solved, None
             if self.is_broken():
                 return Resolutions.unsolvable, self.is_broken()
         if self.solved():
+            self.valid_solutions.append(self.as_str())
             return Resolutions.solved, None
         if self.is_broken():
             return Resolutions.unsolvable, self.is_broken()
         return Resolutions.unsolved, None
 
     def solve_guessing(self, randomize=False, find_all=False) -> int:
-        #  Solve using logic
+        # Solve using logic
         self.solve_clean()
         if self.solved():
             return Status.SOLVED
         if self.is_broken():
             return Status.UNSOLVABLE
-        #  Solve using guessing
+        # Solve using guessing
         i, j, els = self._guess_numbers(randomize)
         self.costs['guesses'] += 1
         for e in els:
@@ -477,7 +476,7 @@ class Sudoku:
             s = Sudoku(self._clues.as_str(), options_str=self._options.as_str(),
                        init_step=self.steps[-1])
             s.set_solution(e, i, j, msg=f"Guessing {e} in row {i} col {j}")
-            status = s.solve_guessing()
+            status = s.solve_guessing(find_all=find_all)
             if status == Status.SOLVED:
                 if find_all is False:
                     self.steps.extend(s.steps)
@@ -491,6 +490,8 @@ class Sudoku:
                         self.valid_solutions.append(s)
                     else:
                         self.valid_solutions.extend(s.valid_solutions)
+        if len(self.valid_solutions) > 0:
+            return Status.SOLVED
         return Status.UNSOLVABLE
 
     def _guess_numbers(self, randomize=False):
@@ -647,14 +648,18 @@ if __name__ == '__main__':
     # init_str = '--5-----8---18---7-----412---9-----2-4-3--5--5-6--7-8-6---9---1-2---5----9-6--7--'
     # init_str = '7-3-----6-1---9----961---3-5----79-4---81-2-----5-------24----8---------3-4----6-'
     # init_str = '---1--9---7-----6---2-4-5-18--65--4---7--8-1--6-4------59-1---23---2-7-5---------'
-    init_str = '--9--7-4--71-2---5-4-----39-----8------46------219-8---6----4---9-2865--5--------'
+    # init_str = '--9--7-4--71-2---5-4-----39-----8------46------219-8---6----4---9-2865--5--------'
+    init_str = '346----5-5-----6----73------7-6-84-----9-2---2-3--5---4-5-632-7-----7-48-3---1-69'
+    # init_str = '236-8-41--8-1--62-1--2---39-62--7--1-73---56-41---2---794-2-------9--28--2------6'
     s = Sudoku(init_str)
     print(f"missing cells: {s.num_of_missing_cells}")
-    s.solve_guessing(find_all=False)
-    # print(len(s.valid_solutions))
+    s.solve_guessing(find_all=True)
+    print(len(s.valid_solutions))
+    for x in s.valid_solutions:
+        print(x.as_str())
 
-    from pygame_sudoku import SudokuVisualize
-
-    sv = SudokuVisualize(steps=s.steps)
-    sv.run()
-    sv.quit()
+    # from pygame_sudoku import SudokuVisualize
+    #
+    # sv = SudokuVisualize(steps=s.steps)
+    # sv.run()
+    # sv.quit()
