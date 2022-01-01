@@ -1,342 +1,25 @@
-#!/usr/bin/env python
-
 import numpy as np
 import random
-
-DEBUG = False
-
-
-class Status:
-    UNKNOWN = 0
-    SOLVED = 1
-    UNSOLVED = 2
-    UNSOLVABLE = 3
+from pysudoku.sudoku import Sudoku
+from pysudoku.common import Resolutions, Status
+from pysudoku.solvers.human_helpers import Step, StepResolution, StepType
 
 
-# https://www.sudokuoftheday.com/about/difficulty/
-# https://www.sudokuoftheday.com/techniques/
-class StepType:
-    SingleCandidate = 'scd'
-    SinglePosition = 'spo'
-    CandidateLines = 'cdl'
-    DoublePairs = 'dbp'
-    MultipleLines = 'mtl'
-    NakedPair = 'nkp'
-    HiddenPair = 'hdp'
-    NakedTriple = 'nkt'
-    HiddenTriple = 'hdt'
-    XWing = 'xwg'
-    ForcingChains = 'fcc'
-    NakedQuad = 'nkq'
-    HiddenQuad = 'hdq'
-    Swordfish = 'swf'
-    Guessing = 'gsg'
-    CleanCandidates = 'cct'
-    Unknown = 'unk'
-    ScanCandidates = 'scan'
-    InitState = 'init'
+class HumanSolver(Sudoku):
 
-
-StepsCosts = {
-    StepType.SingleCandidate: {'first': 100, 'seconds': 100},
-    StepType.SinglePosition: {'first': 100, 'seconds': 100},
-    StepType.CandidateLines: {'first': 350, 'seconds': 200},
-    StepType.DoublePairs: {'first': 500, 'seconds': 250},
-    StepType.MultipleLines: {'first': 700, 'seconds': 400},
-    StepType.NakedPair: {'first': 750, 'seconds': 500},
-    StepType.HiddenPair: {'first': 1500, 'seconds': 1200},
-    StepType.NakedTriple: {'first': 2000, 'seconds': 1400},
-    StepType.HiddenTriple: {'first': 2400, 'seconds': 1600},
-    StepType.XWing: {'first': 2800, 'seconds': 1600},
-    StepType.ForcingChains: {'first': 4200, 'seconds': 2100},
-    StepType.NakedQuad: {'first': 5000, 'seconds': 4000},
-    StepType.HiddenQuad: {'first': 7000, 'seconds': 5000},
-    StepType.Swordfish: {'first': 8000, 'seconds': 6000},
-    StepType.Guessing: {'first': 9000, 'seconds': 10000},
-    StepType.CleanCandidates: {'first': 0, 'seconds': 0},
-    StepType.Unknown: {'first': 0, 'seconds': 0},
-    StepType.ScanCandidates: {'first': 0, 'seconds': 0},
-    StepType.InitState: {'first': 0, 'seconds': 0},
-}
-
-
-class Matrix:
-    def __init__(self, v):
-        self.v = v
-
-    def get_column(self, index):
-        return self.v[:, index]
-
-    def get_row(self, index):
-        return self.v[index, :]
-
-    def __str__(self):
-        tmp = ''
-        for i, row in enumerate(self.v):
-            if i in [3, 6]:
-                tmp += '------+------+------\n'
-            for j, el in enumerate(row):
-                if j in [3, 6]:
-                    tmp += '|'
-                tmp += f"{self.v[i, j]} "
-            tmp += '\n'
-        return tmp
-
-    def as_str(self):
-        return ''.join(self.v.flatten())
-
-
-class SudokuMatrix(Matrix):
-    def __init__(self, str_values: str = None, list_values: list = None, dtype='<U1') -> None:
-        if str_values:
-            super().__init__(np.array(list(str_values), dtype=dtype).reshape((9, 9)))
-        elif list_values:
-            super().__init__(np.array(list_values, dtype=dtype).reshape((9, 9)))
-
-    def get_block(self, i, j):
-        return Matrix(self.v[i * 3:i * 3 + 3, j * 3:j * 3 + 3])
-
-
-class SudokuMatrixMultiValue(SudokuMatrix):
-    @classmethod
-    def from_str(cls, string_repr):
-        values, symb = string_repr.split('|')
-        return cls(symbols=sorted(list(set(symb))),
-                   list_values=values.split(';'))
-
-    def __init__(self, symbols: list, list_values: list = None) -> None:
-        if list_values:
-            super().__init__(list_values=list_values, dtype='<U10')
-        else:
-            super().__init__(list_values=['' for _ in range(81)], dtype='<U10')
-        self.symbols = symbols
-
-    def as_str(self):
-        return ';'.join(self.v.flatten()) + '|' + ''.join(self.symbols)
-
-    def __str__(self):
-        tmp = ''
-        for i, row in enumerate(self.v):
-            if i in [3, 6]:
-                tmp += '---------------+---------------+-------------\n'
-            for ix in range(3):
-                for j in range(9):
-                    if j in [3, 6]:
-                        tmp += '|'
-                    for jx in range(1, 4):
-                        index = ix * 3 + jx
-                        if str(index) in self.v[i, j]:
-                            tmp += f"{index}"
-                        else:
-                            tmp += '·'
-                    tmp += '  '
-                tmp += '\n'
-            if i not in [2, 5]:
-                tmp += '\n'
-            #     tmp += "- - - - - - -|- - - - - - -|- - - - - - -\n"
-        return tmp
-
-
-class CandidatesMatrix(SudokuMatrixMultiValue):
-
-    def found_value_clean(self, row, col, value):
-        """Clean possible candidates of values when a cell value has been fixed"""
-        modified = False
-        changes = []
-        self.v[row, col] = ''
-        for j, el in enumerate(self.get_row(row)):
-            if value in el:
-                self.v[row, j] = el.replace(value, '')
-                changes.append((row, j))
-                modified = True
-        for i, el in enumerate(self.get_column(col)):
-            if value in el:
-                self.v[i, col] = el.replace(value, '')
-                changes.append((i, col))
-                modified = True
-        bi = row // 3
-        bj = col // 3
-        for i in range(3 * bi, 3 * bi + 3):
-            for j in range(3 * bj, 3 * bj + 3):
-                if value in self.v[i, j]:
-                    self.v[i, j] = self.v[i, j].replace(value, '')
-                    changes.append((i, j))
-                    modified = True
-        return modified
-
-    def is_broken(self):
-        """
-        Check if several cells in a row, column or block have the same unique value as candidate
-        """
-        errors = []
-        for bi in range(3):
-            for bj in range(3):
-                b = self.get_block(bi, bj)
-                flat = b.v.flatten()
-                for s in self.symbols:
-                    arr = [s in x and len(x) == 1 for x in flat]
-                    if np.count_nonzero(np.array(arr)) > 1:
-                        errors.append(f"Found several cells on block {bi * 3 + bj} with unique candidate '{s}'")
-        for ri in range(len(self.symbols)):
-            b = self.get_row(ri)
-            flat = b.flatten()
-            for s in self.symbols:
-                arr = [s in x and len(x) == 1 for x in flat]
-                if np.count_nonzero(np.array(arr)) > 1:
-                    errors.append(f"Found several cells on row {ri} with unique candidate '{s}'")
-        for ci in range(len(self.symbols)):
-            b = self.get_column(ci)
-            flat = b.flatten()
-            for s in self.symbols:
-                arr = [s in x and len(x) == 1 for x in flat]
-                if np.count_nonzero(np.array(arr)) > 1:
-                    errors.append(f"Found several cells on column {ri} with unique candidate '{s}'")
-        return errors
-
-
-class Resolutions:
-    solved = 0
-    unsolved = 1
-    unsolvable = -1
-
-    @classmethod
-    def as_str(cls, value):
-        if value == cls.solved:
-            return "solved"
-        if value == cls.unsolved:
-            return "unsolved"
-        if value == cls.unsolvable:
-            return "unsolvable"
-        return "unknown"
-
-
-class Step:
-    def __init__(self, solutions_str, candidates_str, step_type: str, msg='', prev_step=None,
-                 index=0):
-        self.solutions = SudokuMatrix(solutions_str)
-        self.candidates = CandidatesMatrix.from_str(candidates_str)
-        self.step_type = step_type
-        self.msg = msg
-        self.prev = prev_step
-        self.acc_types = [self.step_type]
-        if prev_step:
-            prev_step.next = self
-            self.acc_types.extend(prev_step.acc_types)
-        self.next = None
-        self.index = index
-        self.symbols = [a for a in list(set(self.solutions.v.flatten())) if a != '-']
-        self.fill_symbols()
-
-    @property
-    def cost(self):
-        _repeat = 'first'
-        if self.acc_types.count(self.step_type) > 1:
-            _repeat = 'seconds'
-        return StepsCosts[self.step_type][_repeat]
-
-    def fill_symbols(self):
-        if len(self.symbols) < 9:
-            for i in range(9):
-                if str(i) not in self.symbols:
-                    self.symbols.append(str(i))
-                if len(self.symbols) == 9:
-                    break
-
-    def is_broken(self):
-        for i, row in enumerate(self.solutions.v):
-            for j, cell in enumerate(row):
-                if cell == '-':
-                    if len(self.candidates.v[i, j]) == 0:
-                        return i, j
-        ans = self.candidates.is_broken()
-        if ans:
-            return ans
-        return False
-
-    def solved(self) -> bool:
-        if '-' in self.solutions.v.flatten():
-            return False
-        s = set(self.symbols)
-        for r in range(9):
-            if set(self.solutions.get_row(r)) != s:
-                return False
-        for c in range(9):
-            if set(self.solutions.get_column(c)) != s:
-                return False
-        return True
-
-
-class StepResolution:
-    all = 0
-    mid = 5
-    none = 100
-
-
-class Sudoku:
-
-    def __init__(self, init_values: str, candidates_str: str = None, step_resolution: int = StepResolution.all,
-                 init_step: Step = None) -> None:
-        if len(init_values) != 81:
-            raise ValueError("Invalid Sudoku input")
-        self.sr = step_resolution
-        self.init_str = init_values
-        self._clues = SudokuMatrix(init_values)
+    def __init__(self, init_values: str, candidates_str: str = None,
+                 init_step: Step = None):
+        super(HumanSolver, self).__init__(init_values=init_values, candidates_str=candidates_str)
         self.solve_tree = []
         self.errors = []
-
-        self._symbols = None
-        self.fill_symbols()
-
-        if candidates_str is None:
-            self._candidates = CandidatesMatrix(symbols=self._symbols, list_values=None)
-            self._scanned_candidates = False
-        else:
-            self._candidates = CandidatesMatrix.from_str(string_repr=candidates_str)
-            self._scanned_candidates = True
-
         self.iterations = 0
         self.costs = {'iterations': [],
                       'guesses': 0}
         if init_step is None:
             self.steps = [Step(self._clues.as_str(), self._candidates.as_str(), step_type=StepType.InitState,
-                          msg='Initial State', prev_step=None)]
+                               msg='Initial State', prev_step=None)]
         else:
             self.steps = [init_step]
-
-        self.valid_solutions = []
-
-    @property
-    def clues(self):
-        return SudokuMatrix(self._clues.as_str())
-
-    @property
-    def candidates(self):
-        return CandidatesMatrix.from_str(self._candidates.as_str())
-
-    @property
-    def missing_cells(self) -> zip:
-        return zip(*np.where(self._clues.v == '-'))
-
-    @property
-    def num_of_missing_cells(self):
-        return self.as_str()[0].count('-')
-
-    def fill_symbols(self):
-        self._symbols = sorted(list(set(self.init_str)))
-        if '-' in self._symbols:
-            self._symbols.pop(self._symbols.index('-'))
-        if len(self._symbols) < 9:
-            # Symbols could be any ascii character, but we fill missing ones with numbers
-            for i in range(1, 10):
-                if str(i) not in self._symbols:
-                    self._symbols.append(str(i))
-                if len(self._symbols) == 9:
-                    break
-        elif len(self._symbols) > 9:
-            raise ValueError("Too many symbols")
-
-    def as_str(self):
-        return self._clues.as_str(), self._candidates.as_str()
 
     @property
     def cost(self):
@@ -345,10 +28,9 @@ class Sudoku:
             cost += ste.cost
         return cost
 
-    def add_step(self, step_type: str, message, resolution: int = 100):
-        if resolution > self.sr:
-            self.steps.append(Step(self._clues.as_str(), self._candidates.as_str(), step_type=step_type, msg=message,
-                                   prev_step=self.steps[-1], index=len(self.steps)))
+    def add_step(self, step_type: str, message):
+        self.steps.append(Step(self._clues.as_str(), self._candidates.as_str(), step_type=step_type, msg=message,
+                               prev_step=self.steps[-1], index=len(self.steps)))
 
     def clean_candidates(self):
         """Clean candidates based on solution values already found"""
@@ -358,9 +40,21 @@ class Sudoku:
                 if self._clues.v[r, c] != '-':
                     modified |= self._candidates.found_value_clean(r, c, self._clues.v[r, c])
         if modified:
-            self.add_step(step_type=StepType.CleanCandidates, message='Cleaned candidates', resolution=5)
+            self.add_step(step_type=StepType.CleanCandidates, message='Cleaned candidates')
             return True
         return False
+
+
+
+
+
+
+
+
+
+
+
+
 
     def clean_candidates_in_single_row_of_block(self, iterations=0, skip=[]) -> int:
         """
@@ -556,8 +250,8 @@ class Sudoku:
         self.costs['guesses'] += 1
         for e in els:
             # print(f"Guessing {i, j, e}, empty seats: {self.num_of_missing_cells}")
-            s = Sudoku(self._clues.as_str(), candidates_str=self._candidates.as_str(),
-                       init_step=self.steps[-1])
+            s = HumanSolver(self._clues.as_str(), candidates_str=self._candidates.as_str(),
+                            init_step=self.steps[-1])
             s.set_solution(e, i, j)
             s.add_step(step_type=StepType.Guessing,
                        message=f"Guessing value {e} on position [{i}, {j}]")
@@ -671,18 +365,6 @@ class Sudoku:
                         return 1
         return found
 
-    def solved(self) -> bool:
-        if '-' in self._clues.v.flatten():
-            return False
-        s = set(self._symbols)
-        for r in range(9):
-            if set(self._clues.get_row(r)) != s:
-                return False
-        for c in range(9):
-            if set(self._clues.get_column(c)) != s:
-                return False
-        return True
-
     def find_row_single_candidates(self, found=0) -> int:
         for s in self._symbols:
             for rix, line in enumerate(self._candidates.v):
@@ -723,8 +405,7 @@ class Sudoku:
                                 if s not in self._candidates.v[r, c]:
                                     self._candidates.v[r, c] = self._candidates.v[r, c] + s
         self.add_step(step_type=StepType.ScanCandidates,
-                      message=f"Scanned blocks setting candidates",
-                      resolution=10)
+                      message=f"Scanned blocks setting candidates")
         self._scanned_candidates = True
 
 
@@ -765,18 +446,19 @@ if __name__ == '__main__':
 
     # mygen
     init_str = '2--7----1-8-1---7-14-2---9---2--8---8---4---9---3--7---2---5-16-6---3-2-3----1--8'
-    s = Sudoku(init_str)
+    s = HumanSolver(init_str)
     print(f"missing cells: {s.num_of_missing_cells}")
     s.solve_guessing(find_all=True)
     # print(len(s.valid_solutions))
     # for x in s.valid_solutions:
     #     print(x.as_str())
-    print(s.init_str, s.init_str.count('-'), s.cost, s.solved(), len(s.valid_solutions), '|'.join([x.step_type for x in s.steps]))
+    print(s.init_str, s.init_str.count('-'), s.cost, s.solved(), len(s.valid_solutions),
+          '|'.join([x.step_type for x in s.steps]))
     print(s.solve_tree)
     if s.errors:
         print(f"Some errors found:\n {'n'.join([f'  - {x}' for x in s.errors])}")
 
-    from pygame_sudoku import SudokuVisualize
+    from pysudoku.ui.pygame_sudoku import SudokuVisualize
 
     sv = SudokuVisualize(steps=s.steps)
     sv.run()

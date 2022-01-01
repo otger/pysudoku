@@ -1,5 +1,7 @@
+import os
+
 import pygame
-from pygame_text_wrapper import TextRectException, render_textrect
+from pysudoku.ui.pygame_text_wrapper import TextRectException, render_textrect
 
 import sudoku
 
@@ -109,10 +111,11 @@ class SudokuVisualize:
         self.GUI.fill(BACKGROUND_COLOR)
         sols = self.current_step.solutions
         opts = self.current_step.candidates
-        font_sols = pygame.font.Font("Roboto/Roboto-Medium.ttf", int(CELL_WIDTH / 1.1))
-        font_opts = pygame.font.Font("Roboto/Roboto-Regular.ttf", int(CELL_WIDTH / 3.3))
-        font_msg = pygame.font.Font("Roboto/Roboto-Regular.ttf", EXPLANATION_TEXT_SIZE)
-        font_err_msg = pygame.font.Font("Roboto/Roboto-Regular.ttf", ERROR_TEXT_SIZE)
+        roboto_path = os.path.dirname(__file__)
+        font_sols = pygame.font.Font(os.path.join(roboto_path, "Roboto/Roboto-Medium.ttf"), int(CELL_WIDTH / 1.1))
+        font_opts = pygame.font.Font(os.path.join(roboto_path, "Roboto/Roboto-Regular.ttf"), int(CELL_WIDTH / 3.3))
+        font_msg = pygame.font.Font(os.path.join(roboto_path, "Roboto/Roboto-Regular.ttf"), EXPLANATION_TEXT_SIZE)
+        font_err_msg = pygame.font.Font(os.path.join(roboto_path, "Roboto/Roboto-Regular.ttf"), ERROR_TEXT_SIZE)
         # draw grid lines:
         for i in range(1, 3):
             pygame.draw.line(self.GUI, BLOCK_SEP_LINE_COLOR,
