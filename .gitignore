@@ -1,0 +1,11 @@
+.idea
+.vscode
+output
+*.pyc
+.DS_Store
+downloaded_sudokus/downloaded_sudokus_solved.csv
+downloaded_sudokus/sudoku17_solved_filtered.csv
+downloaded_sudokus/sudoku17_solved.csv
+
+downloaded_sudokus/sudokus_from_app_solved.csv
+downloaded_sudokus/downloaded_sudokus.csv

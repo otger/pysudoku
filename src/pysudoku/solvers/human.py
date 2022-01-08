@@ -1,3 +1,4 @@
+from posixpath import split
 import numpy as np
 import random
 
@@ -77,38 +78,38 @@ class HumanSolver(Sudoku):
         # It is the same case where you only get a single candidate but with only a position empty in a row, col or block
         # Just to differentitate between this case and the general case of single candidate, in case we want to give a different cost
         for _ix in range(9):
-            ## check row
-            _row = self.clues.get_row(_ix)
-            _row_miss_sols = {'1','2','3','4','5','6','7','8','9'} - set(_row)
-            if len(_row_miss_sols) == 1:
-                _col_ix = np.where(_row == "-")[0][0]
-                _value = list(_row_miss_sols)[0]
-                if self.set_solution(_value, _ix, _col_ix):
-                    self.add_step(step_type=StepType.SinglePosition,
-                                    message=f"Found single position in row {_ix}, column {_col_ix}, value {_value}\n")
-                    return 1
-            ## check column
-            _col = self.clues.get_column(_ix)
-            _col_miss_sols = {'1','2','3','4','5','6','7','8','9'} - set(_col)
-            if len(_col_miss_sols) == 1:
-                _row_ix = np.where(_col == "-")[0][0]
-                _value = list(_col_miss_sols)[0]
-                if self.set_solution(_value, _row_ix, _ix):
-                    self.add_step(step_type=StepType.SinglePosition,
-                                    message=f"Found single position in column:  row {_row_ix}, column {_ix}, value {_value}\n")
-                    return 1
-            ## check block
+            # ## check row
+            # _row = self.clues.get_row(_ix)
+            # _row_miss_sols = {'1','2','3','4','5','6','7','8','9'} - set(_row)
+            # if len(_row_miss_sols) == 1:
+            #     _col_ix = np.where(_row == "-")[0][0]
+            #     _value = list(_row_miss_sols)[0]
+            #     if self.set_solution(_value, _ix, _col_ix):
+            #         self.add_step(step_type=StepType.SinglePosition,
+            #                         message=f"Found single position in row {_ix}, column {_col_ix}, value {_value}\n")
+            #         return 1
+            # ## check column
+            # _col = self.clues.get_column(_ix)
+            # _col_miss_sols = {'1','2','3','4','5','6','7','8','9'} - set(_col)
+            # if len(_col_miss_sols) == 1:
+            #     _row_ix = np.where(_col == "-")[0][0]
+            #     _value = list(_col_miss_sols)[0]
+            #     if self.set_solution(_value, _row_ix, _ix):
+            #         self.add_step(step_type=StepType.SinglePosition,
+            #                         message=f"Found single position in column:  row {_row_ix}, column {_ix}, value {_value}\n")
+            #         return 1
+            # ## check block
             _block_num = (_ix//3, _ix%3)
             _block = self.clues.get_block(*_block_num).v.flatten()
             _block_miss_sols = {'1','2','3','4','5','6','7','8','9'} - set(_block)
-            if len(_block_miss_sols) == 1:
-                _block_ix = np.where(_block == "-")[0][0]
-                _value = list(_block_miss_sols)[0]
-                if self.set_solution(_value, 3*_block_num[0]+_block_ix // 3, 3*_block_num[1] + _block_ix % 3):
-                    self.add_step(step_type=StepType.SinglePosition,
-                                    message=f"Found single position in block: row {3*_block_num[0]+_block_ix // 3}, "
-                                            f"column {3*_block_num[1] + _block_ix % 3}, value {_value}\n")
-                    return 1
+            # if len(_block_miss_sols) == 1:
+            #     _block_ix = np.where(_block == "-")[0][0]
+            #     _value = list(_block_miss_sols)[0]
+            #     if self.set_solution(_value, 3*_block_num[0]+_block_ix // 3, 3*_block_num[1] + _block_ix % 3):
+            #         self.add_step(step_type=StepType.SinglePosition,
+            #                         message=f"Found single position in block: row {3*_block_num[0]+_block_ix // 3}, "
+            #                                 f"column {3*_block_num[1] + _block_ix % 3}, value {_value}\n")
+            #         return 1
             # check block candidates for elements only in a cell
             # should check if this one is the only necessary step and we can get rid of the others previous 3
             _block_cand = self._candidates.get_block(*_block_num).v.flatten()
@@ -137,13 +138,13 @@ class HumanSolver(Sudoku):
         return 0
 
     def process_candidate_lines(self,) -> int:
-        if self.clean_candidates_in_single_row_of_block():
+        if self._row_candidate_lines():
             return 1
-        if self.clean_candidates_in_single_col_of_block():
+        if self._col_candidate_lines():
             return 1
         return 0
-
-    def clean_candidates_in_single_row_of_block(self) -> int:
+    
+    def _row_candidate_lines(self) -> int:
         """
         Check if block contains candidate values in a single row of the block. If this is the case, that value
         can be removed from other blocks on that row.
@@ -174,7 +175,7 @@ class HumanSolver(Sudoku):
                             return 1
         return 0
 
-    def clean_candidates_in_single_col_of_block(self) -> int:
+    def _col_candidate_lines(self) -> int:
         """
         Check if block contains a candidate value only in a column on the block. If this is the case, that value
         can be removed from other blocks on that column.
@@ -208,19 +209,21 @@ class HumanSolver(Sudoku):
                             return 1
         return 0
                
-    def process_double_pair(self):
-        if self._process_double_pairs_columns():
+    def process_multiple_lines(self) -> int:
+        if self._process_multiple_lines_cols():
+            return 1
+        if self._process_multiple_lines_rows():
             return 1
         return 0
     
-    def _process_double_pairs_columns(self) -> int:
+    def _process_multiple_lines_cols(self) -> int:
         for bj in range(3):
             for bi in range(2):
                 _cb = self._candidates.get_block(bi, bj)
                 # elements of each column of the block as set (no repetitions)
                 col_els = [set(x[0]+x[1]+x[2]) for x in [_cb.get_column(i) for i in range(3)]]
                 # for each pair of columns
-                for c in [(0,1,2), (0,2,1), (1,2,0)]: # (first col to check, second col to check, col to clear if need to)
+                for c in [(0,1), (0,2), (1,2)]: # (first col to check, second col to check)
                     # elements only present on selected columns and not in the other one
                     # elements in selected columns - elements common to 3 columns -> elements only in selected columns
                     _comm_els = set.difference(set.intersection(col_els[c[0]], col_els[c[1]]), set.intersection(*col_els))
@@ -228,14 +231,14 @@ class HumanSolver(Sudoku):
                         # Check on the same columns on the other blocks (in the same column of blocks)
                         for _bi in range(bi+1, 3):
                             __cb = self._candidates.get_block(_bi, bj)
-                            _rows_els = [set(x[0]+x[1]+x[2]) for x in [__cb.get_column(i) for i in range(3)]]
-                            __com_els = set.difference(set.intersection(_rows_els[c[0]], _rows_els[c[1]]), set.intersection(*_rows_els))
-                            coincidences = set.intersection(_comm_els, __com_els)
+                            _col_els = [set(x[0]+x[1]+x[2]) for x in [__cb.get_column(i) for i in range(3)]]
+                            __comm_els = set.difference(set.intersection(_col_els[c[0]], _col_els[c[1]]), set.intersection(*_col_els))
+                            coincidences = set.intersection(_comm_els, __comm_els)
                             if coincidences:
                                 # There are coincidences on another block on same column of the common elements
                                 found = False
                                 __bi = list(set.difference({0,1,2}, {bi, _bi}))[0]
-                                for _c in c[:1]:
+                                for _c in c:
                                     for i in range(3):
                                         _v = list(coincidences)[0]
                                         if _v in self._candidates.v[__bi*3+i, bj * 3 + _c]:
@@ -243,9 +246,45 @@ class HumanSolver(Sudoku):
                                             self._candidates.v[__bi*3+i, bj * 3 + _c] = self._candidates.v[__bi*3+i, bj * 3 + _c].replace(_v, '')
                                 if found:
                                     self.add_step(
+                                        step_type=StepType.MultipleLines,
+                                        message=f"Found multiple lines in blocks ({(bi, bj), (_bi, bj)}) at columns {c[0], c[1]}. "
+                                                f"Cleaned value {_v} in columns {c[0], c[1]} in block ({(__bi, bj)})\n")
+                                    return 1
+        return 0
+
+    def _process_multiple_lines_rows(self) -> int:
+        for bi in range(3):
+            for bj in range(2):
+                _cb = self._candidates.get_block(bi, bj)
+                # elements of each row of the block as set (no repetitions)
+                row_els = [set(x[0]+x[1]+x[2]) for x in [_cb.get_row(i) for i in range(3)]]
+                # for each pair of columns
+                for c in [(0,1), (0,2), (1,2)]: # (first row to check, second row to check)
+                    # elements only present on selected rows and not in the other one
+                    # elements in selected rows - elements common to 3 rows -> elements only in selected rows
+                    _comm_els = set.difference(set.intersection(row_els[c[0]], row_els[c[1]]), set.intersection(*row_els))
+                    if _comm_els:
+                        # Check on the same columns on the other blocks (in the same column of blocks)
+                        for _bj in range(bj+1, 3):
+                            __cb = self._candidates.get_block(bi, _bj)
+                            _rows_els = [set(x[0]+x[1]+x[2]) for x in [__cb.get_row(i) for i in range(3)]]
+                            __comm_els = set.difference(set.intersection(_rows_els[c[0]], _rows_els[c[1]]), set.intersection(*_rows_els))
+                            coincidences = set.intersection(_comm_els, __comm_els)
+                            if coincidences:
+                                _v = list(coincidences)[0]
+                                # There are coincidences on another block on same row of the common elements
+                                found = False
+                                __bj = list(set.difference({0,1,2}, {bj, _bj}))[0]
+                                for _c in c:
+                                    for i in range(3):
+                                        if _v in self._candidates.v[bi*3 + _c, __bj * 3 + i]:
+                                            found = True
+                                            self._candidates.v[bi*3 + _c, __bj * 3 + i] = self._candidates.v[bi*3 + _c, __bj * 3 + i].replace(_v, '')
+                                if found:
+                                    self.add_step(
                                         step_type=StepType.DoublePairs,
-                                        message=f"Found double pairs in blocks ({(bi, bj), (_bi, bj)}) at columns {c[0], c[1]}. "
-                                                f"Cleaned value {_v} in column {c[2]} in block ({(__bi, bj)})\n")
+                                        message=f"Found multiple lines in blocks ({(bi, bj), (bi, _bj)}) at rows {c[0], c[1]}. "
+                                                f"Cleaned value {_v} in rows {c[0], c[1]} in block ({(bi, __bj)})\n")
                                     return 1
         return 0
 
@@ -255,7 +294,40 @@ class HumanSolver(Sudoku):
 
 
 
-    def _clean_naked_pairs(self, bi, bj, ij_0, ij_1, values) -> int:
+    def process_naked_pairs(self) -> int:
+        """
+        Look for cells in a column or row of a block with same two candidates. If two cells in a row (or column) have the
+        same unique two candidates, it means that those numbers can't be anywhere else on the block or on the row (column)
+        """
+        if self._proc_naked_pairs_block():
+            return 1
+        if self._proc_naked_pairs_col():
+            return 1
+        if self._proc_naked_pairs_row():
+            return 1
+        return 0
+
+    def _proc_naked_pairs_block(self):
+        for bi in range(3):
+            for bj in range(3):
+                bloc_cand = self._candidates.get_block(bi, bj)
+                bin = {}
+                for i, row in enumerate(bloc_cand.v):
+                    for j, el in enumerate(row):
+                        if len(el) == 2:
+                            if el in bin:
+                                # We've found at least 2 cells whith the same 2 candidates and only those candidates. We can clean the block
+                                # and if the cells are in a row/column we can clean candidates from the others blocks in the same row/column
+                                if self._clean_naked_pairs_block(bi, bj, bin[el], (i, j), el):
+                                    self.add_step(step_type=StepType.NakedPair,
+                                                    message=f"Found same 2 values [{el}] in a row or a col on a "
+                                                            f"block [{bi, bj}]. Cleaned it")
+                                    return 1
+                            else:
+                                bin[el] = (i, j)
+        return 0
+
+    def _clean_naked_pairs_block(self, bi, bj, ij_0, ij_1, values) -> int:
         # (i,j) -> row and column inside the block (0 <= bi,bj <3)
         # (bi, bj) -> row, column of the block (0 <= bi,bj <3)
         changes = 0
@@ -290,30 +362,79 @@ class HumanSolver(Sudoku):
                                 self._candidates.v[bi * 3 + i, bj * 3 + j].replace(v, '')
                             changes += 1
         return changes
+    
+    def _proc_naked_pairs_row(self, length=2):
+        if length > 4: 
+            raise Exception('Length can be 4 at much')
+        changes = False
+        for r in range(9):
+            row_cand = self._candidates.get_row(r)
+            row_cand_sets = [{int(x) for x in a} for a in row_cand]
+            for els in row_cand_sets:
+                if len(els) == length:
+                    rep = [x.issubset(els) for x in row_cand_sets]
+                    columns = np.where(np.array(rep))
+                    if len(rep) == length:
+                        for v in els:
+                            for i in range(9):
+                                if i not in columns:
+                                    if str(v) in self._candidates[r, i]:
+                                        self._candidates[r, i] = self._candidates[r, i].replace(str(v), '')
+                                        changes = True
+                        if changes:
+                            st = StepType.NakedPair if length == 2 else StepType.NakedTriple if length == 3 else StepType.NakedQuad if length == 4 else 0
+                            self.add_step(step_type=st,
+                                          message=f"Found same {length} value [{rep}] candidates in {length} cells in a row. Cleaned it")
+                            return 1
+        return 0
 
-    def process_naked_pairs(self) -> int:
+    def _proc_naked_pairs_col(self, length=2):
+        if length > 4: 
+            raise Exception('Length can be 4 at much')
+        changes = False
+        for c in range(9):
+            col_cand = self._candidates.get_column(c)
+            col_cand_sets = [{int(x) for x in a} for a in col_cand]
+            for els in col_cand_sets:
+                if len(els) == length:
+                    rep = [x.issubset(els) for x in col_cand_sets]
+                    rows = np.where(np.array(rep))
+                    if len(rep) == length:
+                        for v in els:
+                            for i in range(9):
+                                if i not in rows:
+                                    if str(v) in self._candidates[i, c]:
+                                        self._candidates[i, c] = self._candidates[i, c].replace(str(v), '')
+                                        changes = True
+                        if changes:
+                            st = StepType.NakedPair if length == 2 else StepType.NakedTriple if length == 3 else StepType.NakedQuad if length == 4 else 0
+                            self.add_step(step_type=st,
+                                          message=f"Found same {length} value [{rep}] candidates in {length} cells in a column. Cleaned it")
+                            return 1
+        return 0
+
+    def process_naked_triples(self) -> int:
         """
         Look for cells in a column or row of a block with same two candidates. If two cells in a row (or column) have the
         same unique two candidates, it means that those numbers can't be anywhere else on the block or on the row (column)
         """
-        for bi in range(3):
-            for bj in range(3):
-                bloc_cand = self._candidates.get_block(bi, bj)
-                bin = {}
-                for i, row in enumerate(bloc_cand.v):
-                    for j, el in enumerate(row):
-                        if len(el) == 2:
-                            if el in bin:
-                                # We've found at least 2 cells whith the same 2 candidates and only those candidates. We can clean the block
-                                # and if the cells are in a row/column we can clean candidates from the others blocks in the same row/column
-                                if self._clean_naked_pairs(bi, bj, bin[el], (i, j), el):
-                                    self.add_step(step_type=StepType.NakedPair,
-                                                    message=f"Found same 2 values [{el}] in a row or a col on a "
-                                                            f"block [{bi, bj}]. Cleaned it")
-                                    return 1
-                            else:
-                                bin[el] = (i, j)
+        if self._proc_naked_pairs_col(length=3):
+            return 1
+        if self._proc_naked_pairs_row(length=3):
+            return 1
         return 0
+
+    def process_naked_quad(self) -> int:
+        """
+        Look for cells in a column or row of a block with same two candidates. If two cells in a row (or column) have the
+        same unique two candidates, it means that those numbers can't be anywhere else on the block or on the row (column)
+        """
+        if self._proc_naked_pairs_col(length=4):
+            return 1
+        if self._proc_naked_pairs_row(length=4):
+            return 1
+        return 0
+
 
     def solve_clean(self) -> tuple:
         if self._scanned_candidates is False:
@@ -327,26 +448,29 @@ class HumanSolver(Sudoku):
                 self.errors.extend(isb)
                 return Resolutions.unsolvable, isb
             
-            if self.find_single_position():
-                self.solve_tree.append(StepType.SinglePosition)
-                continue
-            elif self.clean_candidates():
+            if self.clean_candidates():
                 self.solve_tree.append(StepType.CleanCandidates)
+                continue
+            elif self.find_single_position():
+                self.solve_tree.append(StepType.SinglePosition)
                 continue
             elif self.find_single_candidates():
                 self.solve_tree.append(StepType.SingleCandidate)
                 continue
-            elif self.process_double_pair():
+            elif self.process_candidate_lines():
+                self.solve_tree.append(StepType.CandidateLines)
+                continue
+            elif self.process_multiple_lines():
                 self.solve_tree.append(StepType.DoublePairs)
-                continue
-            elif self.clean_candidates_in_single_col_of_block():
-                self.solve_tree.append(5)
-                continue
-            elif self.clean_candidates_in_single_row_of_block():
-                self.solve_tree.append(6)
                 continue
             elif self.process_naked_pairs():
                 self.solve_tree.append(StepType.NakedPair)
+                continue
+            elif self.process_naked_triples():
+                self.solve_tree.append(StepType.NakedTriple)
+                continue
+            elif self.process_naked_quad():
+                self.solve_tree.append(StepType.NakedQuad)
                 continue
             else:
                 return Resolutions.unsolved, None
@@ -368,6 +492,7 @@ class HumanSolver(Sudoku):
             s.set_solution(e, i, j)
             s.add_step(step_type=StepType.Guessing,
                        message=f"Guessing value {e} on position [{i}, {j}]")
+            s.solve_tree.append(StepType.Guessing)
             status = s.solve_guessing(find_all=find_all)
             if status == Status.SOLVED:
                 if find_all is False:
@@ -480,6 +605,7 @@ if __name__ == '__main__':
 
     # mygen
     init_str = '2--7----1-8-1---7-14-2---9---2--8---8---4---9---3--7---2---5-16-6---3-2-3----1--8'
+    init_str = '-3--5--8--8----1--14-----56------9-7-9-----1-4-1------97-----25--8----7--2--6--9-'
     s = HumanSolver(init_str)
     print(f"missing cells: {s.num_of_missing_cells}")
     s.solve_guessing(find_all=True)

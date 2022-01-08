@@ -1,8 +1,10 @@
 from pysudoku.solvers.human import HumanSolver
 import random
 
+from pysudoku.solvers.human_helpers import StepType
 
-def generate(max_trials=1, reset_trials_on_success=False):
+
+def generate(max_trials=1, mirrored=False, reset_trials_on_success=False, max_guesses=None, max_empty_cells = None):
     s = HumanSolver(init_values='-' * 81)
     s.solve_guessing(randomize=True, find_all=False)
     current = HumanSolver(init_values=s.as_str()[0])
@@ -11,11 +13,16 @@ def generate(max_trials=1, reset_trials_on_success=False):
         prev = current
         init_list = list(current.init_str)
         non_empty_indexes = [i for i, x in enumerate(init_list) if x != '-']
+        if max_empty_cells:
+            if 81-len(non_empty_indexes) == max_empty_cells:
+                return prev
         selected_ix = random.choice(non_empty_indexes)
 
         init_list[selected_ix] = '-'
-        # We remove the mirror position. If selected_ix is row r and col c (r,c), we also remove (8-r, 8-c) (0 based)
-        init_list[80-selected_ix] = '-'
+        if mirrored:
+            # We remove the mirror position. If selected_ix is row r and col c (r,c), we also remove (8-r, 8-c) (0 based)
+            init_list[80-selected_ix] = '-'
+
         init_str = ''.join(init_list)
         current = HumanSolver(init_values=init_str)
         current.solve_guessing(find_all=True)
@@ -26,23 +33,42 @@ def generate(max_trials=1, reset_trials_on_success=False):
             current = prev
         elif reset_trials_on_success:
             trials = 0
-
+        if max_guesses:
+            if current.solve_tree.count(StepType.Guessing) > max_guesses:
+                return prev
 
 if __name__ == "__main__":
-    MAX_TRIALS = 10
+    MAX_TRIALS = 64
     RESET_TRIALS_ON_SUCCESS = True
+    MIRRORED = False
+    # MAX_EMPTY_CELLS = 10
+    MAX_EMPTY_CELLS = [24, 37, 46, 65]
+    GEN_PUZZLES_PER_LOOP_EMPTY_CELLS_VALUE = 250
+    OUTPUT_FILENAME = "20220115.csv"
     import os
     output_folder = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'output'))
-    output_file = os.path.join(output_folder, "sudokus5.csv")
-    i = 0
+    output_file = os.path.join(output_folder, OUTPUT_FILENAME)
+    write_header = True
+    if os.path.exists(output_file):
+        write_header = False
     with open(output_file, "a") as fp:
-        while i < 10000:
-            s = generate(max_trials=MAX_TRIALS)
-            s = HumanSolver(s.init_str)
-            s.solve_guessing(find_all=True)
-            t = f"{s.init_str}, {s.init_str.count('-')}, {s.cost}, {s.solved()}, {len(s.valid_solutions)}, " \
-                f"{MAX_TRIALS}, {RESET_TRIALS_ON_SUCCESS}, {'|'.join([x.step_type for x in s.steps])}"
-            fp.write(f"{t}\n")
-            print(t)
-            fp.flush()
-            i += 1
+        if write_header:
+            # fp.write("# Max empty cells, Max Trials, Reset Trials, Mirrored, Sudoku Str, Empty cells, Cost, Solved, Valid Solutions, Number of guesses, Steps\n")
+            fp.write("#init values, max empty cells, max trials, reset_trials, Mirrored, empty cells, cost, solved, valid solutions, num of steps, num of guessings, step types\n")
+        for max_empty_cells in MAX_EMPTY_CELLS:
+            i = 0
+            while i < GEN_PUZZLES_PER_LOOP_EMPTY_CELLS_VALUE:
+                s = generate(max_trials=MAX_TRIALS, reset_trials_on_success=RESET_TRIALS_ON_SUCCESS, max_guesses=2, max_empty_cells=max_empty_cells)
+                s = HumanSolver(s.init_str)
+                s.solve_guessing(find_all=True)
+                step_names = [x.step_type for x in s.steps]
+                t = ', '.join([str(x) for x in [s.init_str, max_empty_cells, MAX_TRIALS, RESET_TRIALS_ON_SUCCESS, MIRRORED,
+                    s.init_str.count('-'), s.cost, s.solved(), len(s.valid_solutions),len(step_names), 
+                    step_names.count('gsg'),'|'.join(sorted(list(set(step_names))))]])
+                # t = f"{max_empty_cells}, {MAX_TRIALS}, {RESET_TRIALS_ON_SUCCESS}, {MIRRORED}, {s.init_str}, {s.init_str.count('-')}, {s.cost}, " \
+                #     f"{s.solved()}, {len(s.valid_solutions)}, " \
+                #     f"{step_names.count('gsg')}, {'|'.join(step_names)}"
+                fp.write(f"{t}\n")
+                print(t)
+                fp.flush()
+                i += 1
