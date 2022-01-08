@@ -1,5 +1,7 @@
 import numpy as np
 import random
+
+from numpy.core.arrayprint import format_float_positional
 from pysudoku.sudoku import Sudoku
 from pysudoku.common import Resolutions, Status
 from pysudoku.solvers.human_helpers import Step, StepResolution, StepType
@@ -44,19 +46,104 @@ class HumanSolver(Sudoku):
             return True
         return False
 
+    def set_solution(self, value, row, column):
+        if self._clues.v[row, column] == '-':
+            self._clues.v[row, column] = value
+            self._candidates.found_value_clean(row, column, value)
+            return True
+        return False
+
+    def set_candidates(self):
+        for bi in range(3):
+            for bj in range(3):
+                block = self._clues.get_block(bi, bj)
+                for r in range(bi * 3, bi * 3 + 3):
+                    for c in range(bj * 3, bj * 3 + 3):
+                        self._candidates.v[r, c] = ''
+                        if self._clues.v[r, c] == '-':
+                            for s in self._symbols:
+                                if s in block.v or s in self._clues.get_row(r) or s in self._clues.get_column(c):
+                                    continue
+                                if s not in self._candidates.v[r, c]:
+                                    self._candidates.v[r, c] = self._candidates.v[r, c] + s
+        self.add_step(step_type=StepType.ScanCandidates,
+                      message=f"Scanned blocks setting candidates")
+        self._scanned_candidates = True
 
 
 
 
+    def find_single_position(self) -> int:
+        # It is the same case where you only get a single candidate but with only a position empty in a row, col or block
+        # Just to differentitate between this case and the general case of single candidate, in case we want to give a different cost
+        for _ix in range(9):
+            ## check row
+            _row = self.clues.get_row(_ix)
+            _row_miss_sols = {'1','2','3','4','5','6','7','8','9'} - set(_row)
+            if len(_row_miss_sols) == 1:
+                _col_ix = np.where(_row == "-")[0][0]
+                _value = list(_row_miss_sols)[0]
+                if self.set_solution(_value, _ix, _col_ix):
+                    self.add_step(step_type=StepType.SinglePosition,
+                                    message=f"Found single position in row {_ix}, column {_col_ix}, value {_value}\n")
+                    return 1
+            ## check column
+            _col = self.clues.get_column(_ix)
+            _col_miss_sols = {'1','2','3','4','5','6','7','8','9'} - set(_col)
+            if len(_col_miss_sols) == 1:
+                _row_ix = np.where(_col == "-")[0][0]
+                _value = list(_col_miss_sols)[0]
+                if self.set_solution(_value, _row_ix, _ix):
+                    self.add_step(step_type=StepType.SinglePosition,
+                                    message=f"Found single position in column:  row {_row_ix}, column {_ix}, value {_value}\n")
+                    return 1
+            ## check block
+            _block_num = (_ix//3, _ix%3)
+            _block = self.clues.get_block(*_block_num).v.flatten()
+            _block_miss_sols = {'1','2','3','4','5','6','7','8','9'} - set(_block)
+            if len(_block_miss_sols) == 1:
+                _block_ix = np.where(_block == "-")[0][0]
+                _value = list(_block_miss_sols)[0]
+                if self.set_solution(_value, 3*_block_num[0]+_block_ix // 3, 3*_block_num[1] + _block_ix % 3):
+                    self.add_step(step_type=StepType.SinglePosition,
+                                    message=f"Found single position in block: row {3*_block_num[0]+_block_ix // 3}, "
+                                            f"column {3*_block_num[1] + _block_ix % 3}, value {_value}\n")
+                    return 1
+            # check block candidates for elements only in a cell
+            # should check if this one is the only necessary step and we can get rid of the others previous 3
+            _block_cand = self._candidates.get_block(*_block_num).v.flatten()
+            for _v in _block_miss_sols:
+                _v_in_cand = [_v in _block_cand[x] for x in range(9)]
+                positions = np.where(_v_in_cand)[0]
+                if len(positions) == 1:
+                    if self.set_solution(_v, 3*_block_num[0] + positions[0] // 3, 3*_block_num[1] + positions[0] % 3):
+                        self.add_step(step_type=StepType.SinglePosition,
+                                      message=f"Found single position in block: row {3*_block_num[0] + positions[0] // 3}, "
+                                              f"column {3*_block_num[1] + positions[0] % 3}, value {_v}\n")
+                        return 1
 
+        return 0
 
+    def find_single_candidates(self) -> int:
+        for r in range(9):
+            for c in range(9):
+                if self._clues.v[r, c] == '-' and len(self._candidates.v[r, c]) == 1:
+                    val = self._candidates.v[r, c]
+                    if self.set_solution(val, r, c):
+                        self.add_step(step_type=StepType.SingleCandidate,
+                                      message=f"Found single candidate on row {r} column {c}, with value "
+                                              f"{val}")
+                        return 1
+        return 0
 
+    def process_candidate_lines(self,) -> int:
+        if self.clean_candidates_in_single_row_of_block():
+            return 1
+        if self.clean_candidates_in_single_col_of_block():
+            return 1
+        return 0
 
-
-
-
-
-    def clean_candidates_in_single_row_of_block(self, iterations=0, skip=[]) -> int:
+    def clean_candidates_in_single_row_of_block(self) -> int:
         """
         Check if block contains candidate values in a single row of the block. If this is the case, that value
         can be removed from other blocks on that row.
@@ -67,8 +154,6 @@ class HumanSolver(Sudoku):
             for bj in range(3):
                 bopt = self._candidates.get_block(bi, bj)
                 for s in self._symbols:
-                    if (bi, bj, s) in skip:
-                        continue
                     bin = []
                     for brow in bopt.v:
                         bin.append([s in el for el in brow])
@@ -82,18 +167,14 @@ class HumanSolver(Sudoku):
                                     changes = True
                                     self._candidates.v[bi * 3 + brix, i] = self._candidates.v[bi * 3 + brix, i].replace(
                                         s, '')
-                        skip.append((bi, bj, s))
                         if changes:
-                            # new_it = self.clean_candidates_in_single_row_of_block(iterations + 1, skip)
-                            if iterations == 0:
-                                # print("rows", skip)
-                                self.add_step(step_type=StepType.CandidateLines,
-                                              message=f"Found candidate value {s} only in a row of block {bi * 3 + bj} "
-                                                      f"and cleaned outside it.\n")
+                            self.add_step(step_type=StepType.CandidateLines,
+                                            message=f"Found candidate value {s} only in a row of block {bi * 3 + bj} "
+                                                    f"and cleaned outside it.\n")
                             return 1
-        return iterations
+        return 0
 
-    def clean_candidates_in_single_col_of_block(self, iterations=0, skip=[]) -> int:
+    def clean_candidates_in_single_col_of_block(self) -> int:
         """
         Check if block contains a candidate value only in a column on the block. If this is the case, that value
         can be removed from other blocks on that column.
@@ -104,8 +185,6 @@ class HumanSolver(Sudoku):
             for bj in range(3):
                 bopt = self._candidates.get_block(bi, bj)
                 for s in self._symbols:
-                    if (bi, bj, s) in skip:
-                        continue
                     bin = []
                     for row in bopt.v:
                         bin.append([s in el for el in row])
@@ -119,81 +198,126 @@ class HumanSolver(Sudoku):
                             if i < bi * 3 or i > bi * 3 + 2:
                                 if s in self._candidates.v[i, bj * 3 + bcix]:
                                     changes = True
-                                    # print(bi, bj, s, bopt, bin, bycols, bcix)
                                     self._candidates.v[i, bj * 3 + bcix] = self._candidates.v[i, bj * 3 + bcix].replace(
                                         s, '')
-                        skip.append((bi, bj, s))
                         if changes:
-                            # new_it = self.clean_candidates_in_single_col_of_block(iterations + 1, skip)
-                            if iterations == 0:
-                                # print(skip)
-                                self.add_step(
-                                    step_type=StepType.CandidateLines,
-                                    message=f"Found candidate value {s} only in a column of block {bi * 3 + bj} and "
-                                            f"cleaned outside it.\n")
+                            self.add_step(
+                                step_type=StepType.CandidateLines,
+                                message=f"Found candidate value {s} only in a column of block {bi * 3 + bj} and "
+                                        f"cleaned outside it.\n")
                             return 1
-        return iterations
+        return 0
+               
+    def process_double_pair(self):
+        if self._process_double_pairs_columns():
+            return 1
+        return 0
+    
+    def _process_double_pairs_columns(self) -> int:
+        for bj in range(3):
+            for bi in range(2):
+                _cb = self._candidates.get_block(bi, bj)
+                # elements of each column of the block as set (no repetitions)
+                col_els = [set(x[0]+x[1]+x[2]) for x in [_cb.get_column(i) for i in range(3)]]
+                # for each pair of columns
+                for c in [(0,1,2), (0,2,1), (1,2,0)]: # (first col to check, second col to check, col to clear if need to)
+                    # elements only present on selected columns and not in the other one
+                    # elements in selected columns - elements common to 3 columns -> elements only in selected columns
+                    _comm_els = set.difference(set.intersection(col_els[c[0]], col_els[c[1]]), set.intersection(*col_els))
+                    if _comm_els:
+                        # Check on the same columns on the other blocks (in the same column of blocks)
+                        for _bi in range(bi+1, 3):
+                            __cb = self._candidates.get_block(_bi, bj)
+                            _rows_els = [set(x[0]+x[1]+x[2]) for x in [__cb.get_column(i) for i in range(3)]]
+                            __com_els = set.difference(set.intersection(_rows_els[c[0]], _rows_els[c[1]]), set.intersection(*_rows_els))
+                            coincidences = set.intersection(_comm_els, __com_els)
+                            if coincidences:
+                                # There are coincidences on another block on same column of the common elements
+                                found = False
+                                __bi = list(set.difference({0,1,2}, {bi, _bi}))[0]
+                                for _c in c[:1]:
+                                    for i in range(3):
+                                        _v = list(coincidences)[0]
+                                        if _v in self._candidates.v[__bi*3+i, bj * 3 + _c]:
+                                            found = True
+                                            self._candidates.v[__bi*3+i, bj * 3 + _c] = self._candidates.v[__bi*3+i, bj * 3 + _c].replace(_v, '')
+                                if found:
+                                    self.add_step(
+                                        step_type=StepType.DoublePairs,
+                                        message=f"Found double pairs in blocks ({(bi, bj), (_bi, bj)}) at columns {c[0], c[1]}. "
+                                                f"Cleaned value {_v} in column {c[2]} in block ({(__bi, bj)})\n")
+                                    return 1
+        return 0
 
-    def _clean_couples(self, bi, bj, ij_0, ij_1, values):
+                
+
+
+
+
+
+    def _clean_naked_pairs(self, bi, bj, ij_0, ij_1, values) -> int:
+        # (i,j) -> row and column inside the block (0 <= bi,bj <3)
+        # (bi, bj) -> row, column of the block (0 <= bi,bj <3)
+        changes = 0
         values_in_row_or_col = False
+        # check if same row and clean the row outside the block
         if ij_0[0] == ij_1[0]:
-            values_in_row_or_col = True
             row = bi * 3 + ij_0[0]
             cols = (bj * 3 + ij_0[1], bj * 3 + ij_1[1])
             for j in range(9):
                 if j not in cols:
                     for v in values:
-                        self._candidates.v[row, j] = self._candidates.v[row, j].replace(v, '')
-
+                        if v in self._candidates.v[row, j]:
+                            changes += 1
+                            self._candidates.v[row, j] = self._candidates.v[row, j].replace(v, '')
+        # Check if same column and clean column if it is the case
         elif ij_0[1] == ij_1[1]:
-            values_in_row_or_col = True
             rows = (bi * 3 + ij_0[0], bi * 3 + ij_1[0])
             col = bj * 3 + ij_0[1]
             for i in range(9):
                 if i not in rows:
                     for v in values:
-                        self._candidates.v[i, col] = self._candidates.v[i, col].replace(v, '')
-        if values_in_row_or_col:
-            for i in range(3):
-                for j in range(3):
-                    if (i, j) not in [ij_0, ij_1]:
-                        for v in values:
-                            self._candidates.v[bi * 3 + i, bj * 3 + j] = self._candidates.v[
-                                bi * 3 + i, bj * 3 + j].replace(v,
-                                                                '')
-        return values_in_row_or_col
+                        if v in self._candidates.v[i, col]:
+                            self._candidates.v[i, col] = self._candidates.v[i, col].replace(v, '')
+                            changes += 1
+        # clean block
+        for i in range(3):
+            for j in range(3):
+                if (i, j) not in [ij_0, ij_1]:
+                    for v in values:
+                        if v in self._candidates.v[bi * 3 + i, bj * 3 + j]:
+                            self._candidates.v[bi * 3 + i, bj * 3 + j] = \
+                                self._candidates.v[bi * 3 + i, bj * 3 + j].replace(v, '')
+                            changes += 1
+        return changes
 
-    def clean_couples(self, iteration=0, skip=[]):
+    def process_naked_pairs(self) -> int:
         """
         Look for cells in a column or row of a block with same two candidates. If two cells in a row (or column) have the
         same unique two candidates, it means that those numbers can't be anywhere else on the block or on the row (column)
-        :param iterations:
-        :param skip:
-        :return:
         """
         for bi in range(3):
             for bj in range(3):
-                bopt = self._candidates.get_block(bi, bj)
+                bloc_cand = self._candidates.get_block(bi, bj)
                 bin = {}
-                for i, row in enumerate(bopt.v):
+                for i, row in enumerate(bloc_cand.v):
                     for j, el in enumerate(row):
                         if len(el) == 2:
-                            if (bi, bj, i, j, el) not in skip:
-                                if el in bin:
-                                    skip.append((bi, bj, i, j, el))
-                                    if self._clean_couples(bi, bj, bin[el], (i, j), el):
-                                        self.add_step(step_type=StepType.NakedPair,
-                                                      message=f"Found same 2 values [{el}] in a row or a col on a "
-                                                              f"block [{3 * bi + bj}. Cleaned it")
-                                        # return self.clean_couples(iteration + 1, skip)
-                                        return 1
-                                else:
-                                    bin[el] = (i, j)
-        return iteration
+                            if el in bin:
+                                # We've found at least 2 cells whith the same 2 candidates and only those candidates. We can clean the block
+                                # and if the cells are in a row/column we can clean candidates from the others blocks in the same row/column
+                                if self._clean_naked_pairs(bi, bj, bin[el], (i, j), el):
+                                    self.add_step(step_type=StepType.NakedPair,
+                                                    message=f"Found same 2 values [{el}] in a row or a col on a "
+                                                            f"block [{bi, bj}]. Cleaned it")
+                                    return 1
+                            else:
+                                bin[el] = (i, j)
+        return 0
 
     def solve_clean(self) -> tuple:
         if self._scanned_candidates is False:
-            self.scan_blocks()
+            self.set_candidates()
         while True:
             if self.solved():
                 self.valid_solutions.append(self.as_str())
@@ -202,41 +326,30 @@ class HumanSolver(Sudoku):
             if isb:
                 self.errors.extend(isb)
                 return Resolutions.unsolvable, isb
-
-            if self.clean_candidates():
-                self.solve_tree.append(0)
+            
+            if self.find_single_position():
+                self.solve_tree.append(StepType.SinglePosition)
+                continue
+            elif self.clean_candidates():
+                self.solve_tree.append(StepType.CleanCandidates)
+                continue
+            elif self.find_single_candidates():
+                self.solve_tree.append(StepType.SingleCandidate)
+                continue
+            elif self.process_double_pair():
+                self.solve_tree.append(StepType.DoublePairs)
+                continue
+            elif self.clean_candidates_in_single_col_of_block():
+                self.solve_tree.append(5)
+                continue
+            elif self.clean_candidates_in_single_row_of_block():
+                self.solve_tree.append(6)
+                continue
+            elif self.process_naked_pairs():
+                self.solve_tree.append(StepType.NakedPair)
                 continue
             else:
-                if self.find_single_candidates():
-                    self.solve_tree.append(1)
-                    continue
-                else:
-                    if self.find_column_single_candidates():
-                        self.solve_tree.append(2)
-                        continue
-                    else:
-                        if self.find_row_single_candidates():
-                            self.solve_tree.append(3)
-                            continue
-                        else:
-                            if self.find_block_single_candidates():
-                                self.solve_tree.append(4)
-                                continue
-                            else:
-                                if self.clean_candidates_in_single_col_of_block():
-                                    self.solve_tree.append(5)
-                                    continue
-                                else:
-                                    if self.clean_candidates_in_single_row_of_block():
-                                        self.solve_tree.append(6)
-                                        continue
-                                    else:
-                                        if self.clean_couples():
-                                            self.solve_tree.append(7)
-                                            continue
-                                        else:
-                                            break
-        return Resolutions.unsolved, None
+                return Resolutions.unsolved, None
 
     def solve_guessing(self, randomize=False, find_all=False) -> int:
         # Solve using logic
@@ -329,85 +442,6 @@ class HumanSolver(Sudoku):
 
         return errors
 
-    def set_solution(self, value, row, column):
-        if self._clues.v[row, column] == '-':
-            self._clues.v[row, column] = value
-            self._candidates.found_value_clean(row, column, value)
-            return True
-        return False
-
-    def find_block_single_candidates(self, found=0) -> int:
-        for bi in range(3):
-            for bj in range(3):
-                block = self._candidates.get_block(bi, bj)
-                for s in self._symbols:
-                    arr = [s in x for x in block.v.flatten()]
-                    if np.count_nonzero(np.array(arr)) == 1:
-                        ix = arr.index(True)
-                        r = bi * 3 + ix // 3
-                        c = bj * 3 + ix % 3
-                        if self.set_solution(s, r, c):
-                            self.add_step(step_type=StepType.SingleCandidate,
-                                          message=f"Found only one candidate for value {s} on block {3 * bi + bj}: "
-                                                  f"[{r}, {c}]")
-                            return 1
-        return found
-
-    def find_single_candidates(self, found=0) -> int:
-        for r in range(9):
-            for c in range(9):
-                if self._clues.v[r, c] == '-' and len(self._candidates.v[r, c]) == 1:
-                    val = self._candidates.v[r, c]
-                    if self.set_solution(val, r, c):
-                        self.add_step(step_type=StepType.SingleCandidate,
-                                      message=f"Found single candidate on row {r} column {c}, with value "
-                                              f"{val}")
-                        return 1
-        return found
-
-    def find_row_single_candidates(self, found=0) -> int:
-        for s in self._symbols:
-            for rix, line in enumerate(self._candidates.v):
-                arr = [s in x for x in line.flatten()]
-                if np.count_nonzero(np.array(arr)) == 1:
-                    cix = arr.index(True)
-                    if self.set_solution(s, rix, cix):
-                        self.add_step(step_type=StepType.SingleCandidate,
-                                      message=f"Found single candidate for value {s} on row {rix} [column {cix}]")
-                        # return self.find_row_single_candidates(found + 1)
-                        return 1
-        return found
-
-    def find_column_single_candidates(self, found=0) -> int:
-        for c in range(9):
-            line = self._candidates.get_column(c)
-            for s in self._symbols:
-                arr = [s in x for x in line]
-                if np.count_nonzero(np.array(arr)) == 1:
-                    rix = arr.index(True)
-                    if self.set_solution(s, rix, c):
-                        self.add_step(step_type=StepType.SingleCandidate,
-                                      message=f"Found single candidate for value {s} on column {c} [row {rix}]")
-                        # return self.find_column_single_candidates(found + 1)
-                        return 1
-        return found
-
-    def scan_blocks(self):
-        for bi in range(3):
-            for bj in range(3):
-                block = self._clues.get_block(bi, bj)
-                for r in range(bi * 3, bi * 3 + 3):
-                    for c in range(bj * 3, bj * 3 + 3):
-                        if self._clues.v[r, c] == '-':
-                            for s in self._symbols:
-                                if s in block.v or s in self._clues.get_row(r) or s in self._clues.get_column(c):
-                                    continue
-                                if s not in self._candidates.v[r, c]:
-                                    self._candidates.v[r, c] = self._candidates.v[r, c] + s
-        self.add_step(step_type=StepType.ScanCandidates,
-                      message=f"Scanned blocks setting candidates")
-        self._scanned_candidates = True
-
 
 if __name__ == '__main__':
     # init_str = '53--7----6--195----98----6-8---6---34--8-3--17---2---6-6----28----419--5----8--79'
@@ -457,7 +491,7 @@ if __name__ == '__main__':
     print(s.solve_tree)
     if s.errors:
         print(f"Some errors found:\n {'n'.join([f'  - {x}' for x in s.errors])}")
-
+    print(f"cost: {s.cost}")
     from pysudoku.ui.pygame_sudoku import SudokuVisualize
 
     sv = SudokuVisualize(steps=s.steps)

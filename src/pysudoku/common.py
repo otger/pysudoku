@@ -28,8 +28,9 @@ class Resolutions:
 
 
 class Matrix:
-    def __init__(self, v):
+    def __init__(self, v, block=False):
         self.v = v
+        self._block = block
 
     def get_column(self, index):
         return self.v[:, index]
@@ -39,14 +40,20 @@ class Matrix:
 
     def __str__(self):
         tmp = ''
-        for i, row in enumerate(self.v):
-            if i in [3, 6]:
-                tmp += '------+------+------\n'
-            for j, el in enumerate(row):
-                if j in [3, 6]:
-                    tmp += '|'
-                tmp += f"{self.v[i, j]} "
-            tmp += '\n'
+        if self._block:
+            for i, row in enumerate(self.v):
+                tmp += '|'.join([el if el else '-' for el in row])
+                tmp += '\n'
+
+        else:
+            for i, row in enumerate(self.v):
+                if i in [3, 6]:
+                    tmp += '------+------+------\n'
+                for j, el in enumerate(row):
+                    if j in [3, 6]:
+                        tmp += '|'
+                    tmp += f"{self.v[i, j]} "
+                tmp += '\n'
         return tmp
 
     def as_str(self):
@@ -61,7 +68,7 @@ class SudokuMatrix(Matrix):
             super().__init__(np.array(list_values, dtype=dtype).reshape((9, 9)))
 
     def get_block(self, i, j):
-        return Matrix(self.v[i * 3:i * 3 + 3, j * 3:j * 3 + 3])
+        return Matrix(self.v[i * 3:i * 3 + 3, j * 3:j * 3 + 3], block=True)
 
 
 class SudokuMatrixMultiValue(SudokuMatrix):

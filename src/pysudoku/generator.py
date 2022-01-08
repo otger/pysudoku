@@ -1,11 +1,11 @@
-from sudoku2 import Sudoku
+from pysudoku.solvers.human import HumanSolver
 import random
 
 
 def generate(max_trials=1, reset_trials_on_success=False):
-    s = Sudoku(init_values='-' * 81)
-    s.solve_guessing(randomize=True)
-    current = Sudoku(init_values=s.as_str()[0])
+    s = HumanSolver(init_values='-' * 81)
+    s.solve_guessing(randomize=True, find_all=False)
+    current = HumanSolver(init_values=s.as_str()[0])
     trials = 0
     while True:
         prev = current
@@ -17,7 +17,7 @@ def generate(max_trials=1, reset_trials_on_success=False):
         # We remove the mirror position. If selected_ix is row r and col c (r,c), we also remove (8-r, 8-c) (0 based)
         init_list[80-selected_ix] = '-'
         init_str = ''.join(init_list)
-        current = Sudoku(init_values=init_str)
+        current = HumanSolver(init_values=init_str)
         current.solve_guessing(find_all=True)
         if len(current.valid_solutions) > 1:
             trials += 1
@@ -38,7 +38,7 @@ if __name__ == "__main__":
     with open(output_file, "a") as fp:
         while i < 10000:
             s = generate(max_trials=MAX_TRIALS)
-            s = Sudoku(s.init_str)
+            s = HumanSolver(s.init_str)
             s.solve_guessing(find_all=True)
             t = f"{s.init_str}, {s.init_str.count('-')}, {s.cost}, {s.solved()}, {len(s.valid_solutions)}, " \
                 f"{MAX_TRIALS}, {RESET_TRIALS_ON_SUCCESS}, {'|'.join([x.step_type for x in s.steps])}"

@@ -2,8 +2,7 @@ import os
 
 import pygame
 from pysudoku.ui.pygame_text_wrapper import TextRectException, render_textrect
-
-import sudoku
+from pysudoku.solvers.human import HumanSolver, Step
 
 CELL_WIDTH = 70
 CELL_HEIGHT = CELL_WIDTH
@@ -78,7 +77,7 @@ class SudokuVisualize:
         # print(sorted(pygame.font.get_fonts()))
 
     @property
-    def current_step(self) -> sudoku.Step:
+    def current_step(self) -> Step:
         return self.steps[self._curr_step]
 
     def next_step(self):
@@ -249,13 +248,13 @@ class SudokuVisualize:
 
 
 if __name__ == "__main__":
-    from sudoku import Sudoku
+    from pysudoku.solvers.human import HumanSolver
     # hard:
     # init_str = '4-8---9--9---4-7----6----48-8---1-7---5--------18-24-6-3-----5-81-3--------98---7'
     # init_str = '--1----9----915-------784-26-----7--5----2--14--8------4--2-8-7--349------7------'
     # extreme:
     init_str = '----8---9-6-9--18---4-3----1--5-4--6---3-754----------5-7----1-84---3-----9---7-2'
-    s = Sudoku(init_values=init_str, step_resolution=5)
+    s = HumanSolver(init_values=init_str)
     s.solve_clean()
     sv = SudokuVisualize(steps=s.steps)
     sv.run()
