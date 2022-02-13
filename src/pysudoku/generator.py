@@ -42,9 +42,16 @@ if __name__ == "__main__":
     RESET_TRIALS_ON_SUCCESS = True
     MIRRORED = False
     # MAX_EMPTY_CELLS = 10
-    MAX_EMPTY_CELLS = [24, 37, 46, 65]
-    GEN_PUZZLES_PER_LOOP_EMPTY_CELLS_VALUE = 250
-    OUTPUT_FILENAME = "20220115.csv"
+    # class LevelsCosts:
+    #     beginner = 1500
+    #     easy = 3000
+    #     medium = 4000
+    #     hard = 10000
+    #     extreme = 2000000
+
+    MAX_EMPTY_CELLS = [15,18,21,24,26,28,29, 31,33,35,37,39, 52,53,54, 55,56,57,58,59,60,61,62,63,64,65]
+    GEN_PUZZLES_PER_LOOP_EMPTY_CELLS_VALUE = 75
+    OUTPUT_FILENAME = "20220207.csv"
     import os
     output_folder = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'output'))
     output_file = os.path.join(output_folder, OUTPUT_FILENAME)
